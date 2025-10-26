@@ -4,6 +4,8 @@ set -euo pipefail
 ROLE=${1:-server}
 # The private IP of the node must be passed as the second argument
 NODE_IP=${2:?NODE_IP is required as the second argument}
+# The Tailscale IP is the third, optional argument (only used for the server)
+TLS_SAN_IP=${3:-}
 K3S_VERSION=${K3S_VERSION:-"v1.30.4+k3s1"}
 
 # Base flags for both server and agent to ensure private networking
@@ -11,6 +13,9 @@ INSTALL_K3S_EXEC="--flannel-iface=enp7s0 --node-ip=${NODE_IP}"
 
 if [ "$ROLE" = "server" ]; then
   # Server-specific flags
+  if [ -n "$TLS_SAN_IP" ]; then
+    INSTALL_K3S_EXEC="${INSTALL_K3S_EXEC} --tls-san=${TLS_SAN_IP}"
+  fi
   INSTALL_K3S_EXEC="server --disable traefik --disable metrics-server --bind-address=0.0.0.0 ${INSTALL_K3S_EXEC}"
 else
   # Agent-specific flags

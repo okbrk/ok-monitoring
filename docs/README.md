@@ -166,48 +166,76 @@ You should be able to connect successfully. This confirms your infrastructure is
 
 ---
 
-## 4) Bootstrap Kubernetes (k3s)
+## 4) Configure VPN (Tailscale)
 
-Next, you will install k3s on each node to create the Kubernetes cluster. The `scripts/bootstrap-k3s.sh` script automates this.
+Before installing k3s, we will install Tailscale on all nodes. This allows us to get the master node's stable Tailscale IP and provide it to k3s during installation. This ensures the API server's certificate is valid for the IP we will use for `kubectl`.
+
+### a) Install Tailscale on All Nodes
+
+Run the `tailscale-up.sh` script on all three nodes.
+
+```bash
+# Get node public IPs
+NODE0_PUBLIC_IP=$(cd infra/terraform && terraform output -json node_public_ips | jq -r '.[0]')
+NODE1_PUBLIC_IP=$(cd infra/terraform && terraform output -json node_public_ips | jq -r '.[1]')
+NODE2_PUBLIC_IP=$(cd infra/terraform && terraform output -json node_public_ips | jq -r '.[2]')
+
+# Run on node-0
+ssh root@$NODE0_PUBLIC_IP "git clone https://github.com/okbrk/ok-monitoring.git && cd ok-monitoring/scripts && TS_AUTHKEY=$TS_AUTHKEY bash tailscale-up.sh"
+
+# Run on node-1
+ssh root@$NODE1_PUBLIC_IP "git clone https://github.com/okbrk/ok-monitoring.git && cd ok-monitoring/scripts && TS_AUTHKEY=$TS_AUTHKEY bash tailscale-up.sh"
+
+# Run on node-2
+ssh root@$NODE2_PUBLIC_IP "git clone https://github.com/okbrk/ok-monitoring.git && cd ok-monitoring/scripts && TS_AUTHKEY=$TS_AUTHKEY bash tailscale-up.sh"
+```
+
+### b) Approve Subnet Routes and Record IP
+
+1.  In the Tailscale Admin Console, approve the subnet routes advertised by your nodes.
+2.  Get the Tailscale IP for `ok-node-0` and save it to your environment.
+
+```bash
+# Get the Tailscale IP for ok-node-0
+NODE0_TS_IP=$(ssh root@$NODE0_PUBLIC_IP "tailscale ip -4")
+
+# Save this IP to your secrets.env file for later steps
+sed -i '' "s/GRAFANA_NODE_TS_IP=.*/GRAFANA_NODE_TS_IP=${NODE0_TS_IP}/" k8s/observability/secrets.env
+source k8s/observability/secrets.env
+echo "GRAFANA_NODE_TS_IP is now set to: $GRAFANA_NODE_TS_IP"
+```
+
+---
+
+## 5) Bootstrap Kubernetes (k3s)
+
+Now, with the Tailscale IP handy, we can install k3s correctly.
 
 ### a) Install k3s on the First Node (Server)
 
-SSH into `ok-node-0` and run the bootstrap script. This will install k3s as the cluster control plane, correctly configured to use the private network.
-
-```bash
-# From your local machine, get the public and private IPs from Terraform output
-NODE0_PUBLIC_IP=$(cd infra/terraform && terraform output -json node_public_ips | jq -r '.[0]')
-NODE0_PRIVATE_IP=$(cd infra/terraform && terraform output -json node_private_ips | jq -r '.[0]')
-
-# SSH to node-0, clone the repo, and run the script with the private IP
-ssh root@$NODE0_PUBLIC_IP <<EOF
-git clone https://github.com/okbrk/ok-monitoring.git
-cd ok-monitoring/scripts
-bash bootstrap-k3s.sh server ${NODE0_PRIVATE_IP}
-EOF
-```
-
-### b) Get Cluster Join Token and Server IP
-
-To have other nodes join the cluster, you need two pieces of information from the server node:
-1.  The private IP address of `ok-node-0`.
-2.  The k3s node-token.
+SSH into `ok-node-0` and run the bootstrap script, providing both its private IP and its new Tailscale IP. The Tailscale IP will be added to the server's TLS certificate.
 
 ```bash
 # From your local machine
-# We already have NODE0_PRIVATE_IP from the previous step
+NODE0_PUBLIC_IP=$(cd infra/terraform && terraform output -json node_public_ips | jq -r '.[0]')
+NODE0_PRIVATE_IP=$(cd infra/terraform && terraform output -json node_private_ips | jq -r '.[0]')
+
+# SSH to node-0 and run the script with private IP and Tailscale IP
+ssh root@$NODE0_PUBLIC_IP <<EOF
+cd ok-monitoring/scripts
+bash bootstrap-k3s.sh server ${NODE0_PRIVATE_IP} ${GRAFANA_NODE_TS_IP}
+EOF
+```
+
+### b) Get Cluster Join Token
+
+```bash
+# From your local machine
 K3S_TOKEN=$(ssh root@$NODE0_PUBLIC_IP "cat /var/lib/rancher/k3s/server/node-token")
-
-# Set the K3S_URL environment variable for the agent nodes
 export K3S_URL="https://$(echo $NODE0_PRIVATE_IP):6443"
-
-echo "K3S_URL is: $K3S_URL"
-echo "K3S_TOKEN is: $K3S_TOKEN"
 ```
 
 ### c) Install k3s on Worker Nodes
-
-Now SSH into `ok-node-1` and `ok-node-2` and use the same script to install the agent, providing their respective private IPs.
 
 ```bash
 # Get public and private IPs for node-1 and node-2
@@ -218,87 +246,34 @@ NODE2_PRIVATE_IP=$(cd infra/terraform && terraform output -json node_private_ips
 
 # Install on node-1
 ssh root@$NODE1_PUBLIC_IP "export K3S_URL='$K3S_URL'; export K3S_TOKEN='$K3S_TOKEN'; \
-    git clone https://github.com/okbrk/ok-monitoring.git && \
     cd ok-monitoring/scripts && bash bootstrap-k3s.sh agent ${NODE1_PRIVATE_IP}"
 
 # Install on node-2
 ssh root@$NODE2_PUBLIC_IP "export K3S_URL='$K3S_URL'; export K3S_TOKEN='$K3S_TOKEN'; \
-    git clone https://github.com/okbrk/ok-monitoring.git && \
     cd ok-monitoring/scripts && bash bootstrap-k3s.sh agent ${NODE2_PRIVATE_IP}"
 ```
-*Note: We are now consistently using the `bootstrap-k3s.sh` script for all nodes.*
 
-### d) Configure VPN and Retrieve Kubeconfig
+### d) Retrieve and Merge Kubeconfig
 
-With k3s installed, the next step is to install Tailscale on all nodes. This will give us a secure VPN IP for the master node, which we will use in our local `kubeconfig` to access the cluster. This ensures all `kubectl` traffic is securely routed over the VPN.
-
-First, run the `tailscale-up.sh` script on all three nodes.
+This time, the `k3s.yaml` file generated on the server will contain the private IP. We will replace it with the Tailscale IP to ensure `kubectl` works from our local machine.
 
 ```bash
-# Get node public IPs
-NODE0_PUBLIC_IP=$(cd infra/terraform && terraform output -json node_public_ips | jq -r '.[0]')
-NODE1_PUBLIC_IP=$(cd infra/terraform && terraform output -json node_public_ips | jq -r '.[1]')
-NODE2_PUBLIC_IP=$(cd infra/terraform && terraform output -json node_public_ips | jq -r '.[2]')
-
-# Run on node-0
-ssh root@$NODE0_PUBLIC_IP "cd ok-monitoring/scripts && TS_AUTHKEY=$TS_AUTHKEY bash tailscale-up.sh"
-
-# Run on node-1
-ssh root@$NODE1_PUBLIC_IP "cd ok-monitoring/scripts && TS_AUTHKEY=$TS_AUTHKEY bash tailscale-up.sh"
-
-# Run on node-2
-ssh root@$NODE2_PUBLIC_IP "cd ok-monitoring/scripts && TS_AUTHKEY=$TS_AUTHKEY bash tailscale-up.sh"
-```
-
-Next, approve the subnet routes in the Tailscale admin console as described in the original plan.
-
-Finally, retrieve the `kubeconfig` and modify it to use the master node's **Tailscale IP**.
-
-```bash
-# Get the private IP for node-0 for the replacement command
-NODE0_PRIVATE_IP=$(cd infra/terraform && terraform output -json node_private_ips | jq -r '.[0]')
-
-# Get the Tailscale IP for ok-node-0
-NODE0_TS_IP=$(ssh root@$NODE0_PUBLIC_IP "tailscale ip -4")
-
-# Save this IP to your secrets.env file for later steps
-sed -i '' "s/GRAFANA_NODE_TS_IP=.*/GRAFANA_NODE_TS_IP=${NODE0_TS_IP}/" k8s/observability/secrets.env
-source k8s/observability/secrets.env
-echo "GRAFANA_NODE_TS_IP is now set to: $GRAFANA_NODE_TS_IP"
-
 # Retrieve the kubeconfig and replace the server's private IP with its Tailscale IP
 mkdir -p ~/.kube
-ssh root@$NODE0_PUBLIC_IP "cat /etc/rancher/k3s/k3s.yaml" | sed "s/$NODE0_PRIVATE_IP/$NODE0_TS_IP/" > ~/.kube/config-hetzner
+ssh root@$NODE0_PUBLIC_IP "cat /etc/rancher/k3s/k3s.yaml" | sed "s/127.0.0.1/$GRAFANA_NODE_TS_IP/" | sed "s/$NODE0_PRIVATE_IP/$GRAFANA_NODE_TS_IP/" > ~/.kube/config-hetzner
 
 # Set your KUBECONFIG environment variable
 export KUBECONFIG=~/.kube/config-hetzner
-echo "export KUBECONFIG=~/.kube/config-hetzner" >> ~/.zshrc # Or ~/.bashrc
-
-# Reload your shell or source the file
-source ~/.zshrc # Or ~/.bashrc
+echo "export KUBECONFIG=~/.kube/config-hetzner" >> ~/.zshrc
+source ~/.zshrc
 ```
 
 ### e) Verify Cluster Health
 
-This is a critical verification step. Before proceeding, ensure all nodes are `Ready` and accessible via `kubectl`.
-
 ```bash
 kubectl get nodes -o wide
 ```
-You should see 3 nodes listed, all with the `Ready` status and showing their **private** IP addresses in the `INTERNAL-IP` column.
-
-```bash
-kubectl get pods -A
-```
-At this stage, you should only see pods for `coredns` and `local-path-provisioner` in the `kube-system` namespace. **They must all be in the `Running` state.**
-
-**Do not proceed until `kubectl get nodes` works and all pods in `kube-system` are `1/1 Running`.**
-
----
-
-## 5) Configure VPN (Tailscale)
-
-This step has been merged into Step 4d above. Please ensure you have completed it and can connect to the cluster with `kubectl` before proceeding.
+This command should now succeed, showing 3 `Ready` nodes.
 
 ---
 
