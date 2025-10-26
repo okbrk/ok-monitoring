@@ -55,20 +55,7 @@ spec:
           secret:
             secretName: step-ca-secrets
         - name: db
-          persistentVolumeClaim:
-            claimName: step-ca-data
----
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: step-ca-data
-  namespace: step-ca
-spec:
-  accessModes:
-    - ReadWriteOnce
-  resources:
-    requests:
-      storage: 1Gi
+          emptyDir: {}
 ---
 apiVersion: v1
 kind: Service

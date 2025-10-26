@@ -129,6 +129,7 @@ info "Deploying internal PKI..."
 # This part is complex to automate safely. For now, we follow the manual steps.
 # In a real-world scenario, you'd use a pre-existing CA or a more robust automated process.
 warn "Manual step required for PKI setup. Following README Step 8a..."
+kubectl delete namespace step-ca --ignore-not-found=true
 rm -rf ./.pki
 mkdir -p ./.pki && cd ./.pki
 export STEPPATH=$(pwd)
@@ -139,7 +140,6 @@ kubectl create namespace step-ca --dry-run=client -o yaml | kubectl apply -f -
 kubectl -n step-ca create secret generic step-ca-password --from-literal "password=${STEPPASS}"
 kubectl -n step-ca create secret generic step-ca-certs --from-file=./certs/root_ca.crt --from-file=./certs/intermediate_ca.crt
 kubectl -n step-ca create secret generic step-ca-secrets --from-file=./secrets/intermediate_ca_key --from-file=./secrets/root_ca_key
-step ca provisioner add acme --type ACME
 cat > ca.json <<EOL
 {
     "root": "/home/step/certs/root_ca.crt",
@@ -166,7 +166,7 @@ bash scripts/wasabi-buckets.sh
 
 info "Deploying Observability Stack..."
 kubectl create namespace observability --dry-run=client -o yaml | kubectl apply -f -
-kubectl -n observability create secret generic obs-secrets --from-env-file k8s/observability/secrets.env
+sed 's/^export //' k8s/observability/secrets.env | kubectl -n observability create secret generic obs-secrets --from-env-file=-
 helmfile -f k8s/observability/helmfile.yaml apply
 kubectl apply -f k8s/observability/grafana-cert.yaml
 info "Observability stack deployment initiated. It may take 5-10 minutes for all pods to become ready."
