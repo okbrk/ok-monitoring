@@ -209,20 +209,22 @@ echo "K3S_TOKEN is: $K3S_TOKEN"
 
 ### c) Install k3s on Worker Nodes
 
-Now SSH into `ok-node-1` and `ok-node-2` and run the bootstrap script in `agent` mode.
+Now SSH into `ok-node-1` and `ok-node-2` and run the bootstrap script in `agent` mode. We will explicitly set the `INSTALL_K3S_VERSION` to match the server.
 
 ```bash
 # Get public IPs for node-1 and node-2
 NODE1_PUBLIC_IP=$(cd infra/terraform && terraform output -raw public_ips | cut -d, -f2 | tr -d '[]" ')
 NODE2_PUBLIC_IP=$(cd infra/terraform && terraform output -raw public_ips | cut -d, -f3 | tr -d '[]" ')
+K3S_VERSION=$(grep 'K3S_VERSION:-' scripts/bootstrap-k3s.sh | cut -d '"' -f 2)
+
 
 # Install on node-1
 ssh root@$NODE1_PUBLIC_IP "export K3S_URL='$K3S_URL'; export K3S_TOKEN='$K3S_TOKEN'; \
-    curl -sfL https://get.k3s.io | sh -s - agent"
+    curl -sfL https://get.k3s.io | INSTALL_K3S_VERSION='$K3S_VERSION' sh -s - agent"
 
 # Install on node-2
 ssh root@$NODE2_PUBLIC_IP "export K3S_URL='$K3S_URL'; export K3S_TOKEN='$K3S_TOKEN'; \
-    curl -sfL https://get.k3s.io | sh -s - agent"
+    curl -sfL https://get.k3s.io | INSTALL_K3S_VERSION='$K3S_VERSION' sh -s - agent"
 ```
 *Note: We are not using the git-cloned script here for simplicity, but directly piping the installer.*
 
