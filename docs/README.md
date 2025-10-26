@@ -28,6 +28,7 @@ Before you begin, ensure you have the following tools installed locally:
 - [kubectl](https://kubernetes.io/docs/tasks/tools/install-kubectl/)
 - [helm](https://helm.sh/docs/intro/install/)
 - [helmfile](https://github.com/helmfile/helmfile#installation)
+- [jq](https://stedolan.github.io/jq/download/)
 - [aws-cli](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html) (for Wasabi S3)
 - [step-cli](https://smallstep.com/docs/step-cli/installation)
 - [Tailscale](https://tailscale.com/download/)
@@ -175,7 +176,7 @@ SSH into `ok-node-0` and run the bootstrap script. This will install k3s as the 
 
 ```bash
 # From your local machine, get the public IP from Terraform output
-NODE0_PUBLIC_IP=$(cd infra/terraform && terraform output -raw public_ips | cut -d, -f1 | tr -d '[]" ')
+NODE0_PUBLIC_IP=$(cd infra/terraform && terraform output -json node_public_ips | jq -r '.[0]')
 
 # SSH to node-0
 ssh root@$NODE0_PUBLIC_IP
@@ -197,7 +198,7 @@ To have other nodes join the cluster, you need two pieces of information from th
 
 ```bash
 # From your local machine
-NODE0_PRIVATE_IP=$(cd infra/terraform && terraform output -raw private_ips | cut -d, -f1 | tr -d '[]" ')
+NODE0_PRIVATE_IP=$(cd infra/terraform && terraform output -json node_private_ips | jq -r '.[0]')
 K3S_TOKEN=$(ssh root@$NODE0_PUBLIC_IP "cat /var/lib/rancher/k3s/server/node-token")
 
 # Set the K3S_URL environment variable for the agent nodes
@@ -213,8 +214,8 @@ Now SSH into `ok-node-1` and `ok-node-2` and run the bootstrap script in `agent`
 
 ```bash
 # Get public IPs for node-1 and node-2
-NODE1_PUBLIC_IP=$(cd infra/terraform && terraform output -raw public_ips | cut -d, -f2 | tr -d '[]" ')
-NODE2_PUBLIC_IP=$(cd infra/terraform && terraform output -raw public_ips | cut -d, -f3 | tr -d '[]" ')
+NODE1_PUBLIC_IP=$(cd infra/terraform && terraform output -json node_public_ips | jq -r '.[1]')
+NODE2_PUBLIC_IP=$(cd infra/terraform && terraform output -json node_public_ips | jq -r '.[2]')
 K3S_VERSION=$(grep 'K3S_VERSION:-' scripts/bootstrap-k3s.sh | cut -d '"' -f 2)
 
 
@@ -239,10 +240,10 @@ ssh root@$NODE0_PUBLIC_IP "cat /etc/rancher/k3s/k3s.yaml" | sed "s/127.0.0.1/$NO
 
 # Set your KUBECONFIG environment variable
 export KUBECONFIG=~/.kube/config-hetzner
-echo "export KUBECONFIG=~/.kube/config-hetzner" >> ~/.bashrc # Or ~/.zshrc
+echo "export KUBECONFIG=~/.kube/config-hetzner" >> ~/.zshrc # Or ~/.bashrc
 
 # Reload your shell or source the file
-source ~/.bashrc # Or ~/.zshrc
+source ~/.zshrc # Or ~/.bashrc
 ```
 
 ### e) Verify Cluster Health
@@ -276,9 +277,9 @@ You will run the `tailscale-up.sh` script on each node.
 
 ```bash
 # Get node public IPs
-NODE0_PUBLIC_IP=$(cd infra/terraform && terraform output -raw public_ips | cut -d, -f1 | tr -d '[]" ')
-NODE1_PUBLIC_IP=$(cd infra/terraform && terraform output -raw public_ips | cut -d, -f2 | tr -d '[]" ')
-NODE2_PUBLIC_IP=$(cd infra/terraform && terraform output -raw public_ips | cut -d, -f3 | tr -d '[]" ')
+NODE0_PUBLIC_IP=$(cd infra/terraform && terraform output -json node_public_ips | jq -r '.[0]')
+NODE1_PUBLIC_IP=$(cd infra/terraform && terraform output -json node_public_ips | jq -r '.[1]')
+NODE2_PUBLIC_IP=$(cd infra/terraform && terraform output -json node_public_ips | jq -r '.[2]')
 
 # Run on node-0
 # Note: You may need to re-clone the repo if you didn't do it in the previous step's SSH session.
@@ -332,7 +333,7 @@ echo "GRAFANA_NODE_TS_IP is now set to: $GRAFANA_NODE_TS_IP"
 
     ```bash
     # This curl will hang, as expected
-    curl -k https://$(cd infra/terraform && terraform output -raw private_ips | cut -d, -f1 | tr -d '[]" '):6443
+    curl -k https://$(cd infra/terraform && terraform output -json node_private_ips | jq -r '.[0]'):6443
 
     # This should return a JSON response from Kubernetes
     curl -k https://$GRAFANA_NODE_TS_IP:6443

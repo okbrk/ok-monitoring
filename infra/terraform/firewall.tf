@@ -35,17 +35,24 @@ resource "hcloud_firewall" "nodes" {
   rule {
     direction   = "in"
     protocol    = "tcp"
-    port        = "6443"
+    port        = "any"
     source_ips  = [hcloud_network.main.ip_range]
-    description = "k3s API server from private network"
+    description = "Allow all TCP traffic from within the private network"
   }
 
   rule {
     direction   = "in"
     protocol    = "udp"
-    port        = "8472"
+    port        = "any"
     source_ips  = [hcloud_network.main.ip_range]
-    description = "k3s flannel networking"
+    description = "Allow all UDP traffic from within the private network"
+  }
+
+  rule {
+    direction   = "in"
+    protocol    = "icmp"
+    source_ips  = [hcloud_network.main.ip_range]
+    description = "Allow all ICMP traffic from within the private network"
   }
 }
 
