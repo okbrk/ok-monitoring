@@ -10,6 +10,14 @@ resource "hcloud_firewall" "nodes" {
   }
 
   rule {
+    direction   = "in"
+    protocol    = "tcp"
+    port        = "6443"
+    source_ips  = [var.my_ip_cidr]
+    description = "Kubernetes API from maintainer IP"
+  }
+
+  rule {
     direction  = "in"
     protocol   = "udp"
     port       = "41641"

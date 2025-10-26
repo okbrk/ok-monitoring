@@ -3,28 +3,6 @@ kind: Namespace
 metadata:
   name: step-ca
 ---
-apiVersion: v1
-kind: Secret
-metadata:
-  name: step-ca-config
-  namespace: step-ca
-type: Opaque
-stringData:
-  password: changeit
-  # Provide a real ca.json and keys in production. For bootstrap, mount placeholder.
-  ca.json: |
-    {
-      "address": ":9000",
-      "dns": ["step-ca.step-ca.svc.cluster.local"],
-      "db": {"type": "badgerv2", "dataSource": "/home/step/db"},
-      "authority": {
-        "type": "soft",
-        "provisioners": [
-          {"type": "ACME", "name": "acme"}
-        ]
-      }
-    }
----
 apiVersion: apps/v1
 kind: Deployment
 metadata:

@@ -11,9 +11,12 @@ loki:
     s3:
       s3: ${WASABI_ENDPOINT}
       s3ForcePathStyle: true
-      accessKeyId: ${S3_LOKI_ACCESS}
-      secretAccessKey: ${S3_LOKI_SECRET}
+      accessKeyId: ""
+      secretAccessKey: ""
       insecure: false
+  extraEnvFrom:
+    - secretRef:
+        name: obs-secrets
   limits_config:
     ingestion_rate_mb: 8
     ingestion_burst_size_mb: 16

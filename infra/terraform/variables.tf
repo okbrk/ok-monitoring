@@ -12,7 +12,7 @@ variable "ssh_key_name" {
 variable "location" {
   type        = string
   description = "Hetzner DC location (hel1|nbg1)"
-  default     = "hel1"
+  default     = "nbg1"
 }
 
 variable "my_ip_cidr" {

@@ -18,14 +18,16 @@ grafana.ini:
   auth:
     disable_login_form: true
     oauth_allow_insecure_email_lookup: true
-  auth.google:
+  auth.generic_oauth:
     enabled: true
+    name: OIDC
     client_id: ${OIDC_CLIENT_ID}
     client_secret: ${OIDC_CLIENT_SECRET}
     scopes: openid profile email
-    auth_url: https://accounts.google.com/o/oauth2/v2/auth
-    token_url: https://oauth2.googleapis.com/token
-    api_url: https://openidconnect.googleapis.com/v1/userinfo
+    auth_url: ${OIDC_AUTH_URL}
+    token_url: ${OIDC_TOKEN_URL}
+    api_url: ${OIDC_API_URL}
+    allowed_domains: ${OIDC_ALLOWED_DOMAINS}
   users:
     auto_assign_org: true
     auto_assign_org_role: Editor

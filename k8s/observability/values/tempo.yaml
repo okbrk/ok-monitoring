@@ -6,8 +6,11 @@ tempo:
         endpoint: ${WASABI_ENDPOINT}
         insecure: false
         forcepathstyle: true
-        access_key: ${S3_TEMPO_ACCESS}
-        secret_key: ${S3_TEMPO_SECRET}
+        access_key: ""
+        secret_key: ""
+  extraEnvFrom:
+    - secretRef:
+        name: obs-secrets
   receivers:
     otlp:
       protocols:

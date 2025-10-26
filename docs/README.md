@@ -172,22 +172,19 @@ Next, you will install k3s on each node to create the Kubernetes cluster. The `s
 
 ### a) Install k3s on the First Node (Server)
 
-SSH into `ok-node-0` and run the bootstrap script. This will install k3s as the cluster control plane.
+SSH into `ok-node-0` and run the bootstrap script. This will install k3s as the cluster control plane, correctly configured to use the private network.
 
 ```bash
-# From your local machine, get the public IP from Terraform output
+# From your local machine, get the public and private IPs from Terraform output
 NODE0_PUBLIC_IP=$(cd infra/terraform && terraform output -json node_public_ips | jq -r '.[0]')
+NODE0_PRIVATE_IP=$(cd infra/terraform && terraform output -json node_private_ips | jq -r '.[0]')
 
-# SSH to node-0
-ssh root@$NODE0_PUBLIC_IP
-
-# Inside node-0, clone your repo and run the script
-git clone https://github.com/<your-github-user>/<your-repo-name>.git
-cd <your-repo-name>/scripts
-bash bootstrap-k3s.sh server
-
-# Exit the SSH session
-exit
+# SSH to node-0, clone the repo, and run the script with the private IP
+ssh root@$NODE0_PUBLIC_IP <<EOF
+git clone https://github.com/okbrk/ok-monitoring.git
+cd ok-monitoring/scripts
+bash bootstrap-k3s.sh server ${NODE0_PRIVATE_IP}
+EOF
 ```
 
 ### b) Get Cluster Join Token and Server IP
@@ -198,7 +195,7 @@ To have other nodes join the cluster, you need two pieces of information from th
 
 ```bash
 # From your local machine
-NODE0_PRIVATE_IP=$(cd infra/terraform && terraform output -json node_private_ips | jq -r '.[0]')
+# We already have NODE0_PRIVATE_IP from the previous step
 K3S_TOKEN=$(ssh root@$NODE0_PUBLIC_IP "cat /var/lib/rancher/k3s/server/node-token")
 
 # Set the K3S_URL environment variable for the agent nodes
@@ -210,24 +207,26 @@ echo "K3S_TOKEN is: $K3S_TOKEN"
 
 ### c) Install k3s on Worker Nodes
 
-Now SSH into `ok-node-1` and `ok-node-2` and run the bootstrap script in `agent` mode. We will explicitly set the `INSTALL_K3S_VERSION` to match the server.
+Now SSH into `ok-node-1` and `ok-node-2` and use the same script to install the agent, providing their respective private IPs.
 
 ```bash
-# Get public IPs for node-1 and node-2
+# Get public and private IPs for node-1 and node-2
 NODE1_PUBLIC_IP=$(cd infra/terraform && terraform output -json node_public_ips | jq -r '.[1]')
+NODE1_PRIVATE_IP=$(cd infra/terraform && terraform output -json node_private_ips | jq -r '.[1]')
 NODE2_PUBLIC_IP=$(cd infra/terraform && terraform output -json node_public_ips | jq -r '.[2]')
-K3S_VERSION=$(grep 'K3S_VERSION:-' scripts/bootstrap-k3s.sh | cut -d '"' -f 2)
-
+NODE2_PRIVATE_IP=$(cd infra/terraform && terraform output -json node_private_ips | jq -r '.[2]')
 
 # Install on node-1
 ssh root@$NODE1_PUBLIC_IP "export K3S_URL='$K3S_URL'; export K3S_TOKEN='$K3S_TOKEN'; \
-    curl -sfL https://get.k3s.io | INSTALL_K3S_VERSION='$K3S_VERSION' sh -s - agent"
+    git clone https://github.com/okbrk/ok-monitoring.git && \
+    cd ok-monitoring/scripts && bash bootstrap-k3s.sh agent ${NODE1_PRIVATE_IP}"
 
 # Install on node-2
 ssh root@$NODE2_PUBLIC_IP "export K3S_URL='$K3S_URL'; export K3S_TOKEN='$K3S_TOKEN'; \
-    curl -sfL https://get.k3s.io | INSTALL_K3S_VERSION='$K3S_VERSION' sh -s - agent"
+    git clone https://github.com/okbrk/ok-monitoring.git && \
+    cd ok-monitoring/scripts && bash bootstrap-k3s.sh agent ${NODE2_PRIVATE_IP}"
 ```
-*Note: We are not using the git-cloned script here for simplicity, but directly piping the installer.*
+*Note: We are now consistently using the `bootstrap-k3s.sh` script for all nodes.*
 
 ### d) Retrieve and Merge Kubeconfig
 
@@ -283,15 +282,15 @@ NODE2_PUBLIC_IP=$(cd infra/terraform && terraform output -json node_public_ips |
 
 # Run on node-0
 # Note: You may need to re-clone the repo if you didn't do it in the previous step's SSH session.
-ssh root@$NODE0_PUBLIC_IP "cd <your-repo-name>/scripts && TS_AUTHKEY=$TS_AUTHKEY bash tailscale-up.sh"
+ssh root@$NODE0_PUBLIC_IP "cd ok-monitoring/scripts && TS_AUTHKEY=$TS_AUTHKEY bash tailscale-up.sh"
 
 # Run on node-1
-ssh root@$NODE1_PUBLIC_IP "git clone https://github.com/<your-github-user>/<your-repo-name>.git && \
-    cd <your-repo-name>/scripts && TS_AUTHKEY=$TS_AUTHKEY bash tailscale-up.sh"
+ssh root@$NODE1_PUBLIC_IP "git clone https://github.com/okbrk/ok-monitoring.git && \
+    cd ok-monitoring/scripts && TS_AUTHKEY=$TS_AUTHKEY bash tailscale-up.sh"
 
 # Run on node-2
-ssh root@$NODE2_PUBLIC_IP "git clone https://github.com/<your-github-user>/<your-repo-name>.git && \
-    cd <your-repo-name>/scripts && TS_AUTHKEY=$TS_AUTHKEY bash tailscale-up.sh"
+ssh root@$NODE2_PUBLIC_IP "git clone https://github.com/okbrk/ok-monitoring.git && \
+    cd ok-monitoring/scripts && TS_AUTHKEY=$TS_AUTHKEY bash tailscale-up.sh"
 ```
 
 ### b) Approve Subnet Routes in Tailscale
@@ -625,7 +624,7 @@ The Helm charts for the observability stack are configured to use a single Kuber
 kubectl create namespace observability --dry-run=client -o yaml | kubectl apply -f -
 
 # Create the secret from your environment file
-kubectl -n observability create secret generic obs-secrets --from-env-file ks8/observability/secrets.env
+kubectl -n observability create secret generic obs-secrets --from-env-file k8s/observability/secrets.env
 ```
 
 ### b) Deploy the Stack with Helmfile
