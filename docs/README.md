@@ -610,3 +610,26 @@ Once all the components are running and the TLS certificate is ready, you can ac
 5.  Explore the pre-configured datasources for Loki, Mimir, and Tempo.
 
 Congratulations! You now have a fully private, scalable observability stack.
+
+## Automated Deployment
+
+For a fully automated deployment, a `scripts/setup.sh` script is provided. This script orchestrates all the steps outlined in this `README`, from provisioning infrastructure to deploying the final observability stack.
+
+### Prerequisites
+
+Ensure you have completed **Step 1 (Prerequisites)** and **Step 2 (Environment Setup)** from the manual guide. The `setup.sh` script requires all the necessary tools to be installed and the `k8s/observability/secrets.env` file to be correctly populated.
+
+### Usage
+
+To run the automated deployment, simply execute the script from the root of the repository:
+
+```bash
+bash scripts/setup.sh
+```
+
+The script will guide you through the process, printing informational messages and pausing for the two required manual actions:
+
+1.  Approving the subnet routes in the Tailscale admin console.
+2.  Configuring the split DNS for the `.ok` domain in the Tailscale admin console.
+
+After the script completes, your observability stack will be deployed and accessible at `https://grafana.ok`.
