@@ -12,7 +12,7 @@ K3S_ARGS="--flannel-iface=enp7s0 --node-ip=${NODE_IP}"
 
 if [ "$ROLE" = "server" ]; then
   CMD="server"
-  K3S_ARGS="${K3S_ARGS} --disable traefik --disable metrics-server --bind-address=0.0.0.0"
+  K3S_ARGS="${K3S_ARGS} --disable traefik --disable metrics-server"
   if [ -n "$TLS_SAN_IP" ]; then
     K3S_ARGS="${K3S_ARGS} --tls-san=${TLS_SAN_IP}"
   fi

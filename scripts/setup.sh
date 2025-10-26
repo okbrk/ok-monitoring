@@ -16,7 +16,7 @@ warn() {
 
 # --- Pre-flight Checks ---
 info "Running pre-flight checks..."
-for cmd in terraform kubectl helmfile jq aws step ts; do
+for cmd in terraform kubectl helmfile jq aws step; do
     if ! command -v $cmd &> /dev/null; then
         warn "Command '$cmd' not found. Please install it first."
         exit 1
@@ -66,9 +66,9 @@ info "Phase 3: Configuring VPN and bootstrapping k3s..."
 info "Cloning repo and installing Tailscale on all nodes..."
 ssh-keyscan $NODE0_PUBLIC_IP $NODE1_PUBLIC_IP $NODE2_PUBLIC_IP >> ~/.ssh/known_hosts 2>/dev/null
 
-ssh root@$NODE0_PUBLIC_IP "git clone https://github.com/okbrk/ok-monitoring.git && cd ok-monitoring/scripts && TS_AUTHKEY=$TS_AUTHKEY bash tailscale-up.sh" &
-ssh root@$NODE1_PUBLIC_IP "git clone https://github.com/okbrk/ok-monitoring.git && cd ok-monitoring/scripts && TS_AUTHKEY=$TS_AUTHKEY bash tailscale-up.sh" &
-ssh root@$NODE2_PUBLIC_IP "git clone https://github.com/okbrk/ok-monitoring.git && cd ok-monitoring/scripts && TS_AUTHKEY=$TS_AUTHKEY bash tailscale-up.sh" &
+ssh root@$NODE0_PUBLIC_IP "cd ok-monitoring/scripts && TS_AUTHKEY=$TS_AUTHKEY bash tailscale-up.sh" &
+ssh root@$NODE1_PUBLIC_IP "cd ok-monitoring/scripts && TS_AUTHKEY=$TS_AUTHKEY bash tailscale-up.sh" &
+ssh root@$NODE2_PUBLIC_IP "cd ok-monitoring/scripts && TS_AUTHKEY=$TS_AUTHKEY bash tailscale-up.sh" &
 wait
 info "Tailscale installed on all nodes. Please approve subnet routes in the Tailscale admin console."
 read -p "Press [Enter] to continue once routes are approved..."
