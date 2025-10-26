@@ -1,0 +1,45 @@
+#cloud-config
+package_update: true
+package_upgrade: true
+packages:
+  - curl
+  - jq
+  - nftables
+  - iptables
+  - ca-certificates
+ssh_authorized_keys:
+  - ${ssh_pub_key}
+write_files:
+  - path: /etc/nftables.conf
+    permissions: '0644'
+    owner: root:root
+    content: |
+      table inet filter {
+        chain input {
+          type filter hook input priority 0;
+          ct state established,related accept
+          iifname "lo" accept
+          # Tailscale interface
+          iifname "tailscale0" accept
+          udp dport 41641 accept
+          # SSH from MY_IP_CIDR (templated)
+          ip saddr ${my_ip_cidr} tcp dport 22 accept
+          # Allow private NIC traffic (adjust if needed)
+          iifname "${private_nic}" accept
+          # Block NodePort range on public NIC
+          iifname "${public_nic}" tcp dport 30000-32767 drop
+          iifname "${public_nic}" udp dport 30000-32767 drop
+          counter drop
+        }
+      }
+runcmd:
+  - sysctl -w net.ipv4.ip_forward=1
+  - systemctl enable nftables
+  - systemctl start nftables
+  - curl -fsSL https://pkgs.tailscale.com/stable/ubuntu/jammy.noarmor.gpg | tee /usr/share/keyrings/tailscale-archive-keyring.gpg >/dev/null
+  - curl -fsSL https://pkgs.tailscale.com/stable/ubuntu/jammy.tailscale-keyring.list | tee /etc/apt/sources.list.d/tailscale.list
+  - apt-get update && apt-get install -y tailscale
+  - systemctl enable --now tailscaled
+  - echo "Tailscale ready. Run tailscale up with your auth key."
+
+

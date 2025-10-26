@@ -1,0 +1,25 @@
+global:
+  extraEnvFrom:
+    - secretRef:
+        name: obs-secrets
+
+mimir:
+  structuredConfig:
+    common:
+      storage:
+        backend: s3
+        s3:
+          endpoint: ${WASABI_ENDPOINT}
+          s3forcepathstyle: true
+          access_key_id: ${S3_MIMIR_ACCESS}
+          secret_access_key: ${S3_MIMIR_SECRET}
+    limits:
+      ingestion_rate: 10000
+      ingestion_burst_size: 20000
+      max_series_per_user: 500000
+
+nginx:
+  enabled: true
+  service:
+    type: ClusterIP
+

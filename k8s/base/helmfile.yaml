@@ -1,0 +1,22 @@
+repositories:
+  - name: jetstack
+    url: https://charts.jetstack.io
+  - name: metrics-server
+    url: https://kubernetes-sigs.github.io/metrics-server/
+
+releases:
+  - name: metrics-server
+    namespace: kube-system
+    chart: metrics-server/metrics-server
+    version: "3.12.1"
+    values:
+      - args:
+        - --kubelet-insecure-tls
+
+  - name: cert-manager
+    namespace: cert-manager
+    chart: jetstack/cert-manager
+    version: "v1.15.1"
+    createNamespace: true
+    values:
+      - installCRDs: true

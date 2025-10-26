@@ -1,0 +1,29 @@
+loki:
+  auth_enabled: true
+  commonConfig:
+    replication_factor: 1
+  storage:
+    type: s3
+    bucketNames:
+      chunks: loki-logs
+      ruler: loki-logs
+      admin: loki-logs
+    s3:
+      s3: ${WASABI_ENDPOINT}
+      s3ForcePathStyle: true
+      accessKeyId: ${S3_LOKI_ACCESS}
+      secretAccessKey: ${S3_LOKI_SECRET}
+      insecure: false
+  limits_config:
+    ingestion_rate_mb: 8
+    ingestion_burst_size_mb: 16
+    max_line_size: 131072
+    max_label_names_per_series: 40
+    max_label_value_length: 2048
+    enforce_metric_name: false
+
+gateway:
+  enabled: true
+  ingress:
+    enabled: false
+

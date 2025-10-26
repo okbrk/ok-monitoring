@@ -1,0 +1,13 @@
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: grafana-ok-cert
+  namespace: observability
+spec:
+  secretName: grafana-ok-tls
+  issuerRef:
+    kind: ClusterIssuer
+    name: step-ca-issuer
+  dnsNames:
+    - grafana.ok
+

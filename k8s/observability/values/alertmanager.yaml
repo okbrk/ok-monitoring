@@ -1,0 +1,11 @@
+alertmanager:
+  config:
+    global:
+      resolve_timeout: 5m
+    route:
+      receiver: default
+    receivers:
+      - name: default
+        pagerduty_configs:
+          - routing_key: ${PD_DEFAULT}
+

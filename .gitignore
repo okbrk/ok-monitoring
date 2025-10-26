@@ -1,0 +1,14 @@
+# Terraform local state
+infra/terraform/.terraform/
+infra/terraform/.terraform.lock.hcl
+infra/terraform/terraform.tfstate
+infra/terraform/terraform.tfstate.*
+
+# Secrets
+k8s/observability/secrets.env
+
+# Editor/OS
+.DS_Store
+.idea/
+*.swp
+
