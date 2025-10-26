@@ -66,6 +66,9 @@ info "Phase 3: Configuring VPN and bootstrapping k3s..."
 info "Cloning repo and installing Tailscale on all nodes..."
 ssh-keyscan $NODE0_PUBLIC_IP $NODE1_PUBLIC_IP $NODE2_PUBLIC_IP >> ~/.ssh/known_hosts 2>/dev/null
 
+# ssh root@$NODE0_PUBLIC_IP "git clone https://github.com/okbrk/ok-monitoring.git && cd ok-monitoring/scripts && TS_AUTHKEY=$TS_AUTHKEY bash tailscale-up.sh" &
+# ssh root@$NODE1_PUBLIC_IP "git clone https://github.com/okbrk/ok-monitoring.git && cd ok-monitoring/scripts && TS_AUTHKEY=$TS_AUTHKEY bash tailscale-up.sh" &
+# ssh root@$NODE2_PUBLIC_IP "git clone https://github.com/okbrk/ok-monitoring.git && cd ok-monitoring/scripts && TS_AUTHKEY=$TS_AUTHKEY bash tailscale-up.sh" &
 ssh root@$NODE0_PUBLIC_IP "cd ok-monitoring/scripts && TS_AUTHKEY=$TS_AUTHKEY bash tailscale-up.sh" &
 ssh root@$NODE1_PUBLIC_IP "cd ok-monitoring/scripts && TS_AUTHKEY=$TS_AUTHKEY bash tailscale-up.sh" &
 ssh root@$NODE2_PUBLIC_IP "cd ok-monitoring/scripts && TS_AUTHKEY=$TS_AUTHKEY bash tailscale-up.sh" &
@@ -126,7 +129,9 @@ info "Deploying internal PKI..."
 # This part is complex to automate safely. For now, we follow the manual steps.
 # In a real-world scenario, you'd use a pre-existing CA or a more robust automated process.
 warn "Manual step required for PKI setup. Following README Step 8a..."
+rm -rf ./.pki
 mkdir -p ./.pki && cd ./.pki
+export STEPPATH=$(pwd)
 STEPPASS=$(openssl rand -base64 20)
 step ca init --name="ok-ca" --provisioner="admin" --dns="ca.ok" \
 --address=":8443" --password-file <(echo -n "$STEPPASS") --provisioner-password-file <(echo -n "$STEPPASS")

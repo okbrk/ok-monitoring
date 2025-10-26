@@ -39,7 +39,7 @@ data:
         IN NS ns1.ok.
     ns1.ok. IN A 127.0.0.1
     ; This record will be updated by a script later
-    grafana IN A __GRAFANA_NODE_TS_IP__
+    grafana IN A 100.84.84.76
 ---
 apiVersion: apps/v1
 kind: DaemonSet
