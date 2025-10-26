@@ -11,7 +11,7 @@ INSTALL_K3S_EXEC="--flannel-iface=enp7s0 --node-ip=${NODE_IP}"
 
 if [ "$ROLE" = "server" ]; then
   # Server-specific flags
-  INSTALL_K3S_EXEC="server --disable traefik --disable metrics-server --bind-address=${NODE_IP} ${INSTALL_K3S_EXEC}"
+  INSTALL_K3S_EXEC="server --disable traefik --disable metrics-server --bind-address=0.0.0.0 ${INSTALL_K3S_EXEC}"
 else
   # Agent-specific flags
   INSTALL_K3S_EXEC="agent --server $K3S_URL --token $K3S_TOKEN ${INSTALL_K3S_EXEC}"
