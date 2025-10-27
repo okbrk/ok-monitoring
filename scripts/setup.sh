@@ -44,7 +44,7 @@ source "$PROJECT_ROOT/.env"
 set +a
 
 # Check for required environment variables
-REQUIRED_VARS=("HCLOUD_TOKEN" "SSH_KEY_NAME" "MY_IP_CIDR" "DOMAIN" "GRAFANA_ADMIN_PASSWORD" "POSTGRES_PASSWORD" "TAILSCALE_AUTHKEY" "WASABI_REGION" "WASABI_ENDPOINT" "S3_LOKI_ACCESS_KEY_ID" "S3_LOKI_SECRET_ACCESS_KEY" "S3_MIMIR_ACCESS_KEY_ID" "S3_MIMIR_SECRET_ACCESS_KEY" "S3_TEMPO_ACCESS_KEY_ID" "S3_TEMPO_SECRET_ACCESS_KEY")
+REQUIRED_VARS=("HCLOUD_TOKEN" "SSH_KEY_NAME" "MY_IP_CIDR" "DOMAIN" "GRAFANA_ADMIN_PASSWORD" "POSTGRES_PASSWORD" "TAILSCALE_AUTHKEY" "WASABI_REGION" "WASABI_ENDPOINT" "S3_LOKI_ACCESS_KEY_ID" "S3_LOKI_SECRET_ACCESS_KEY" "S3_MIMIR_ACCESS_KEY_ID" "S3_MIMIR_SECRET_ACCESS_KEY" "S3_TEMPO_ACCESS_KEY_ID" "S3_TEMPO_SECRET_ACCESS_KEY" "SSH_KEY_FILE")
 for var in "${REQUIRED_VARS[@]}"; do
     if [ -z "${!var:-}" ]; then
         error "Required environment variable '$var' is not set in .env file."
@@ -52,6 +52,16 @@ for var in "${REQUIRED_VARS[@]}"; do
     fi
 done
 info "All required environment variables are set"
+
+# Expand tilde in SSH_KEY_FILE
+SSH_KEY_FILE="${SSH_KEY_FILE/#\~/$HOME}"
+
+# Verify SSH key file exists
+if [ ! -f "$SSH_KEY_FILE" ]; then
+    error "SSH key file not found: $SSH_KEY_FILE"
+    exit 1
+fi
+info "SSH key file found: $SSH_KEY_FILE"
 
 # Verify SSH key exists in Hetzner
 info "Verifying SSH key exists in Hetzner..."
@@ -96,19 +106,51 @@ SERVER_NAME=$(terraform output -raw server_name)
 
 info "Server provisioned: $SERVER_NAME @ $SERVER_IP"
 
+# Add server to SSH config
+info "Adding server to ~/.ssh/config..."
+SSH_CONFIG_ENTRY="
+# Observability Platform - Added by setup script
+Host ok-obs
+  HostName $SERVER_IP
+  User root
+  IdentityFile $SSH_KEY_FILE
+  StrictHostKeyChecking accept-new
+"
+
+# Check if entry already exists
+if grep -q "Host ok-obs" ~/.ssh/config 2>/dev/null; then
+    info "SSH config entry already exists, updating..."
+    # Remove old entry and add new one
+    sed -i.bak '/# Observability Platform/,/^$/d' ~/.ssh/config 2>/dev/null || true
+fi
+
+# Ensure .ssh directory exists
+mkdir -p ~/.ssh
+chmod 700 ~/.ssh
+
+# Create config if it doesn't exist
+touch ~/.ssh/config
+chmod 600 ~/.ssh/config
+
+# Add new entry
+echo "$SSH_CONFIG_ENTRY" >> ~/.ssh/config
+
+info "SSH config updated. You can now connect with: ssh ok-obs"
+
 # --- Phase 2: Wait for Server and Setup Tailscale ---
 step "Phase 2: Waiting for Server to Initialize"
+
+info "Adding server to known_hosts..."
+ssh-keyscan -H "$SERVER_IP" >> ~/.ssh/known_hosts 2>/dev/null
 
 info "Waiting for SSH to become available (this may take 1-2 minutes)..."
 MAX_SSH_RETRIES=60
 SSH_RETRY_COUNT=0
 while [ $SSH_RETRY_COUNT -lt $MAX_SSH_RETRIES ]; do
-    # Use BatchMode to prevent password prompts and PreferredAuthentications to force key auth
+    # Now use the ok-obs alias from SSH config
     if ssh -o ConnectTimeout=5 \
-           -o StrictHostKeyChecking=accept-new \
            -o BatchMode=yes \
-           -o PreferredAuthentications=publickey \
-           root@"$SERVER_IP" "echo 'SSH Ready'" &>/dev/null; then
+           ok-obs "echo 'SSH Ready'" &>/dev/null; then
         info "SSH is available and key authentication working!"
         break
     fi
@@ -129,12 +171,9 @@ if [ $SSH_RETRY_COUNT -eq $MAX_SSH_RETRIES ]; then
     error "  2. Cloud-init hasn't finished (wait 2-3 more minutes and retry)"
     error "  3. Firewall blocking SSH from your IP"
     error ""
-    error "Try manually: ssh root@$SERVER_IP"
+    error "Try manually: ssh ok-obs"
     exit 1
 fi
-
-info "Adding server to known_hosts..."
-ssh-keyscan -H "$SERVER_IP" >> ~/.ssh/known_hosts 2>/dev/null
 
 info "Waiting for Docker and Tailscale to be installed (cloud-init may take 2-5 minutes)..."
 MAX_RETRIES=60
@@ -142,8 +181,7 @@ RETRY_COUNT=0
 while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
     if ssh -o ConnectTimeout=5 \
            -o BatchMode=yes \
-           -o PreferredAuthentications=publickey \
-           root@"$SERVER_IP" "command -v docker >/dev/null 2>&1 && command -v tailscale >/dev/null 2>&1" 2>/dev/null; then
+           ok-obs "command -v docker >/dev/null 2>&1 && command -v tailscale >/dev/null 2>&1" 2>/dev/null; then
         info "Docker and Tailscale are ready!"
         break
     fi
@@ -159,15 +197,15 @@ echo ""
 
 if [ $RETRY_COUNT -eq $MAX_RETRIES ]; then
     error "Timed out waiting for Docker/Tailscale installation"
-    error "Check cloud-init logs on server: ssh root@$SERVER_IP 'tail -100 /var/log/cloud-init-output.log'"
+    error "Check cloud-init logs on server: ssh ok-obs 'tail -100 /var/log/cloud-init-output.log'"
     exit 1
 fi
 
 info "Connecting server to Tailscale network..."
-ssh root@"$SERVER_IP" "tailscale up --authkey=${TAILSCALE_AUTHKEY} --hostname=obs-server"
+ssh ok-obs "tailscale up --authkey=${TAILSCALE_AUTHKEY} --hostname=obs-server"
 
 info "Getting Tailscale IP..."
-TAILSCALE_IP=$(ssh root@"$SERVER_IP" "tailscale ip -4")
+TAILSCALE_IP=$(ssh ok-obs "tailscale ip -4")
 info "Server Tailscale IP: $TAILSCALE_IP"
 
 # Save Tailscale IP to .env file
@@ -182,7 +220,7 @@ rm -f "$PROJECT_ROOT/.env.bak"
 step "Phase 3: Deploying Observability Stack"
 
 info "Creating application directory on server..."
-ssh root@"$SERVER_IP" "mkdir -p /opt/observability && mkdir -p /opt/observability-data"
+ssh ok-obs "mkdir -p /opt/observability && mkdir -p /opt/observability-data"
 
 info "Copying application files to server..."
 cd "$PROJECT_ROOT"
@@ -195,12 +233,12 @@ tar czf /tmp/obs-stack.tar.gz \
     --exclude='*.bak'
 
 # Copy and extract on server
-scp /tmp/obs-stack.tar.gz root@"$SERVER_IP":/opt/observability/
-ssh root@"$SERVER_IP" "cd /opt/observability && tar xzf obs-stack.tar.gz && rm obs-stack.tar.gz"
+scp /tmp/obs-stack.tar.gz ok-obs:/opt/observability/
+ssh ok-obs "cd /opt/observability && tar xzf obs-stack.tar.gz && rm obs-stack.tar.gz"
 rm /tmp/obs-stack.tar.gz
 
 info "Creating .env file on server..."
-ssh root@"$SERVER_IP" "cat > /opt/observability/.env" <<ENVFILE
+ssh ok-obs "cat > /opt/observability/.env" <<ENVFILE
 DOMAIN=${DOMAIN}
 DATA_DIR=/opt/observability-data
 GRAFANA_ADMIN_USER=${GRAFANA_ADMIN_USER:-admin}
@@ -218,13 +256,13 @@ S3_TEMPO_SECRET_ACCESS_KEY=${S3_TEMPO_SECRET_ACCESS_KEY}
 ENVFILE
 
 info "Starting Docker Compose stack..."
-ssh root@"$SERVER_IP" "cd /opt/observability && docker compose up -d"
+ssh ok-obs "cd /opt/observability && docker compose up -d"
 
 info "Waiting for services to become healthy..."
 sleep 10
 
 # Check service status
-ssh root@"$SERVER_IP" "cd /opt/observability && docker compose ps"
+ssh ok-obs "cd /opt/observability && docker compose ps"
 
 # --- Phase 4: Create S3 Buckets ---
 step "Phase 4: Creating S3 Buckets on Wasabi"
@@ -239,7 +277,7 @@ info "Waiting for PostgreSQL to be ready..."
 sleep 15
 
 info "Creating admin tenant..."
-ssh root@"$SERVER_IP" "cd /opt/observability && bash scripts/tenant-management/create-tenant.sh 'Platform Admin' 'admin@${DOMAIN}' admin" | tee /tmp/admin-tenant.txt
+ssh ok-obs "cd /opt/observability && bash scripts/tenant-management/create-tenant.sh 'Platform Admin' 'admin@${DOMAIN}' admin" | tee /tmp/admin-tenant.txt
 
 # Extract admin API key from output
 ADMIN_API_KEY=$(grep "API Key:" /tmp/admin-tenant.txt | awk '{print $3}')
@@ -294,13 +332,13 @@ echo "Next Steps:"
 echo "  1. Configure DNS A records (see above)"
 echo "  2. Connect to your Tailscale network"
 echo "  3. Access Grafana at http://${TAILSCALE_IP}:3000"
-echo "  4. Create tenant accounts: ssh root@${SERVER_IP} 'cd /opt/observability && bash scripts/tenant-management/create-tenant.sh'"
+echo "  4. Create tenant accounts: ssh ok-obs 'cd /opt/observability && bash scripts/tenant-management/create-tenant.sh'"
 echo ""
 echo "Useful Commands:"
-echo "  SSH to server:     ssh root@${SERVER_IP}"
-echo "  View logs:         ssh root@${SERVER_IP} 'cd /opt/observability && docker compose logs -f'"
-echo "  Restart services:  ssh root@${SERVER_IP} 'cd /opt/observability && docker compose restart'"
-echo "  List tenants:      ssh root@${SERVER_IP} 'cd /opt/observability && bash scripts/tenant-management/list-tenants.sh'"
+echo "  SSH to server:     ssh ok-obs"
+echo "  View logs:         ssh ok-obs 'cd /opt/observability && docker compose logs -f'"
+echo "  Restart services:  ssh ok-obs 'cd /opt/observability && docker compose restart'"
+echo "  List tenants:      ssh ok-obs 'cd /opt/observability && bash scripts/tenant-management/list-tenants.sh'"
 echo ""
 
 cd "$PROJECT_ROOT"
