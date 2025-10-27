@@ -76,7 +76,7 @@ limits:
   # Compaction and retention
   compactor_blocks_retention_period: 720h
 
-# Runtime configuration
+# Runtime configuration (inline, no external file needed)
 runtime_config:
-  file: /etc/mimir/runtime.yaml
+  period: 10s
 
