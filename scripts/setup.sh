@@ -84,23 +84,45 @@ info "Server provisioned: $SERVER_NAME @ $SERVER_IP"
 # --- Phase 2: Wait for Server and Setup Tailscale ---
 step "Phase 2: Waiting for Server to Initialize"
 
+info "Waiting for SSH to become available..."
+MAX_SSH_RETRIES=60
+SSH_RETRY_COUNT=0
+while [ $SSH_RETRY_COUNT -lt $MAX_SSH_RETRIES ]; do
+    if ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=accept-new root@"$SERVER_IP" "echo 'SSH Ready'" &>/dev/null; then
+        info "SSH is available!"
+        break
+    fi
+    SSH_RETRY_COUNT=$((SSH_RETRY_COUNT + 1))
+    echo -n "."
+    sleep 5
+done
+echo ""
+
+if [ $SSH_RETRY_COUNT -eq $MAX_SSH_RETRIES ]; then
+    error "Timed out waiting for SSH to become available"
+    exit 1
+fi
+
 info "Adding server to known_hosts..."
 ssh-keyscan -H "$SERVER_IP" >> ~/.ssh/known_hosts 2>/dev/null
 
-info "Waiting for Docker and Tailscale to be installed (cloud-init may take 2-3 minutes)..."
+info "Waiting for Docker and Tailscale to be installed (cloud-init may take 2-5 minutes)..."
 MAX_RETRIES=60
 RETRY_COUNT=0
 while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
-    if ssh -o ConnectTimeout=5 root@"$SERVER_IP" "command -v docker &> /dev/null && command -v tailscale &> /dev/null" 2>/dev/null; then
+    if ssh -o ConnectTimeout=5 root@"$SERVER_IP" "command -v docker >/dev/null 2>&1 && command -v tailscale >/dev/null 2>&1" 2>/dev/null; then
         info "Docker and Tailscale are ready!"
         break
     fi
     RETRY_COUNT=$((RETRY_COUNT + 1))
+    echo -n "."
     sleep 5
 done
+echo ""
 
 if [ $RETRY_COUNT -eq $MAX_RETRIES ]; then
     error "Timed out waiting for Docker/Tailscale installation"
+    error "Check cloud-init logs on server: ssh root@$SERVER_IP 'tail -100 /var/log/cloud-init-output.log'"
     exit 1
 fi
 
