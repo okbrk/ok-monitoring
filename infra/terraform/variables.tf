@@ -23,7 +23,7 @@ variable "my_ip_cidr" {
 variable "server_type" {
   type        = string
   description = "Hetzner server type"
-  default     = "cax11"
+  default     = "cpx32"  # 4 vCPU, 8GB RAM, 160GB SSD - optimal for observability
 }
 
 variable "image" {

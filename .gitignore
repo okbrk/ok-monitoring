@@ -1,14 +1,67 @@
-# Terraform local state
+# Environment and secrets
+.env
+*.env
+!env.example
+secrets.env
+k8s/observability/secrets.env
+
+# Terraform
 infra/terraform/.terraform/
 infra/terraform/.terraform.lock.hcl
 infra/terraform/terraform.tfstate
-infra/terraform/terraform.tfstate.*
+infra/terraform/terraform.tfstate.backup
+infra/terraform/*.tfvars
+infra/terraform/tfplan
 
-# Secrets
-k8s/observability/secrets.env
+# Tenant data (contains API keys)
+tenants/
+*.json
+!config/**/*.json
 
-# Editor/OS
-.DS_Store
-.idea/
+# Temporary files
+*.bak
+*.tmp
+*.log
 *.swp
+*.swo
+*~
+.DS_Store
 
+# SSH keys
+*.pem
+*.key
+!infra/terraform/*.key  # Allow Terraform keys
+id_rsa*
+
+# Kubernetes (legacy)
+.kube/
+kubeconfig*
+
+# PKI (legacy)
+.pki/
+*.crt
+*.csr
+
+# Build artifacts
+*.tar.gz
+*.zip
+
+# IDE
+.vscode/
+.idea/
+*.iml
+
+# OS
+Thumbs.db
+desktop.ini
+
+# Backups
+backup-*/
+*.sql
+
+# Docker
+docker-compose.override.yml
+
+# Local testing
+test-output/
+/tmp/

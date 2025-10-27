@@ -1,0 +1,87 @@
+# Multi-tenant Mimir configuration for metrics storage
+multitenancy_enabled: true
+
+# Server configuration
+server:
+  http_listen_port: 8080
+  grpc_listen_port: 9095
+  log_level: info
+
+# Distributor configuration
+distributor:
+  ring:
+    kvstore:
+      store: memberlist
+
+# Ingester configuration
+ingester:
+  ring:
+    kvstore:
+      store: memberlist
+    replication_factor: 1
+
+# Storage configuration - using S3 (Wasabi)
+blocks_storage:
+  backend: s3
+  s3:
+    endpoint: ${S3_ENDPOINT}
+    bucket_name: mimir-metrics
+    region: ${S3_REGION}
+    access_key_id: ${S3_MIMIR_ACCESS_KEY_ID}
+    secret_access_key: ${S3_MIMIR_SECRET_ACCESS_KEY}
+  tsdb:
+    dir: /data/tsdb-cache
+    retention_period: 30d
+
+# Compactor configuration
+compactor:
+  data_dir: /data/compactor
+  sharding_ring:
+    kvstore:
+      store: memberlist
+
+# Store-gateway configuration
+store_gateway:
+  sharding_ring:
+    replication_factor: 1
+    kvstore:
+      store: memberlist
+
+# Ruler configuration
+ruler:
+  rule_path: /data/rules
+
+# Alertmanager configuration
+alertmanager:
+  data_dir: /data/alertmanager
+  external_url: http://alertmanager:9093
+  sharding_ring:
+    replication_factor: 1
+    kvstore:
+      store: memberlist
+
+# Memberlist configuration for cluster coordination
+memberlist:
+  join_members:
+    - mimir:7946
+
+# Limits configuration per tenant
+limits:
+  # Ingestion limits
+  ingestion_rate: 100000
+  ingestion_burst_size: 200000
+  max_global_series_per_user: 1000000
+  max_global_series_per_metric: 100000
+
+  # Query limits
+  max_query_lookback: 30d
+  max_query_length: 31d
+  max_partial_query_length: 30d
+
+  # Compaction and retention
+  compactor_blocks_retention_period: 30d
+
+# Runtime configuration
+runtime_config:
+  file: /etc/mimir/runtime.yaml
+

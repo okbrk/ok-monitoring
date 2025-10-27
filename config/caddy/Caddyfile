@@ -1,0 +1,62 @@
+# Caddy configuration with automatic HTTPS
+# Admin services (Grafana) are NOT exposed - access via Tailscale VPN only
+
+{
+  # Global options
+  email admin@{$DOMAIN}
+  admin off
+}
+
+# API endpoints for customer data ingestion - PUBLIC
+https://api.{$DOMAIN} {
+  # OTLP HTTP endpoints for traces, metrics, and logs
+  handle /v1/traces {
+    reverse_proxy otel-collector:4318
+  }
+
+  handle /v1/metrics {
+    reverse_proxy otel-collector:4318
+  }
+
+  handle /v1/logs {
+    reverse_proxy otel-collector:4318
+  }
+
+  # Loki push endpoint (for Promtail, Fluentd, etc.)
+  handle /loki/api/v1/push {
+    reverse_proxy loki:3100
+  }
+
+  # Mimir remote write endpoint (for Prometheus)
+  handle /api/v1/push {
+    reverse_proxy mimir:8080
+  }
+
+  # Tempo OTLP endpoint (alternative)
+  handle /tempo/* {
+    reverse_proxy tempo:4318
+  }
+
+  # Health check endpoint - public (for monitoring)
+  handle /health {
+    respond "OK" 200
+  }
+
+  # Default: deny all other requests
+  handle {
+    respond "Unauthorized" 401
+  }
+}
+
+# OTLP gRPC endpoint - PUBLIC
+https://otlp.{$DOMAIN} {
+  reverse_proxy h2c://otel-collector:4317
+}
+
+# Grafana and admin dashboard - NOT EXPOSED
+# Access these services via Tailscale VPN at:
+#   http://<tailscale-ip>:3000 - Grafana
+#   http://<tailscale-ip>:3001 - Admin Dashboard (future)
+#
+# Note: Grafana is accessible on the Docker network but NOT via public internet
+

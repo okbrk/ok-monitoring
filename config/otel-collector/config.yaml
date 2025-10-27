@@ -1,0 +1,93 @@
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  batch:
+    timeout: 10s
+    send_batch_size: 1024
+
+  # Memory limiter to prevent OOM
+  memory_limiter:
+    check_interval: 1s
+    limit_mib: 512
+    spike_limit_mib: 128
+
+  # Add resource attributes
+  resource:
+    attributes:
+      - key: service.environment
+        action: insert
+        value: production
+
+  # Transform processor to extract tenant ID from headers
+  # In production, implement custom processor or use attributes processor
+  attributes:
+    actions:
+      - key: tenant_id
+        action: upsert
+        from_context: X-Scope-OrgID
+
+exporters:
+  # Export logs to Loki
+  loki:
+    endpoint: http://loki:3100/loki/api/v1/push
+    headers:
+      X-Scope-OrgID: ${TENANT_ID}
+
+  # Export metrics to Mimir
+  prometheusremotewrite:
+    endpoint: http://mimir:8080/api/v1/push
+    headers:
+      X-Scope-OrgID: ${TENANT_ID}
+
+  # Export traces to Tempo
+  otlp/tempo:
+    endpoint: http://tempo:4317
+    tls:
+      insecure: true
+    headers:
+      X-Scope-OrgID: ${TENANT_ID}
+
+  # Debug exporter for troubleshooting
+  logging:
+    loglevel: info
+
+  # Prometheus metrics about the collector itself
+  prometheus:
+    endpoint: 0.0.0.0:8888
+
+extensions:
+  health_check:
+    endpoint: 0.0.0.0:13133
+  pprof:
+    endpoint: 0.0.0.0:1777
+  zpages:
+    endpoint: 0.0.0.0:55679
+
+service:
+  extensions: [health_check, pprof, zpages]
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, batch, resource]
+      exporters: [otlp/tempo, logging]
+
+    metrics:
+      receivers: [otlp]
+      processors: [memory_limiter, batch, resource]
+      exporters: [prometheusremotewrite, logging]
+
+    logs:
+      receivers: [otlp]
+      processors: [memory_limiter, batch, resource]
+      exporters: [loki, logging]
+
+  telemetry:
+    metrics:
+      address: 0.0.0.0:8888
+

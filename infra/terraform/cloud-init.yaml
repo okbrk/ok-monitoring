@@ -5,14 +5,36 @@ packages:
   - curl
   - jq
   - ca-certificates
+  - git
+  - htop
 ssh_authorized_keys:
   - ${ssh_pub_key}
 runcmd:
-  - sysctl -w net.ipv4.ip_forward=1
-  - curl -fsSL https://pkgs.tailscale.com/stable/ubuntu/jammy.noarmor.gpg | tee /usr/share/keyrings/tailscale-archive-keyring.gpg >/dev/null
-  - curl -fsSL https://pkgs.tailscale.com/stable/ubuntu/jammy.tailscale-keyring.list | tee /etc/apt/sources.list.d/tailscale.list
-  - apt-get update && apt-get install -y tailscale
-  - systemctl enable --now tailscaled
-  - echo "Tailscale ready. Run tailscale up with your auth key."
+  # Install Docker
+  - curl -fsSL https://get.docker.com -o /tmp/get-docker.sh
+  - sh /tmp/get-docker.sh
+  - systemctl enable docker
+  - systemctl start docker
+  # Create data directory for local cache (S3 used for persistent storage)
+  - mkdir -p /opt/observability-data
+  - chown -R root:root /opt/observability-data
+  - chmod 755 /opt/observability-data
+  # Set up Docker log rotation
+  - |
+    cat > /etc/docker/daemon.json <<EOF
+    {
+      "log-driver": "json-file",
+      "log-opts": {
+        "max-size": "10m",
+        "max-file": "3"
+      }
+    }
+    EOF
+  - systemctl restart docker
+  # Install Tailscale for VPN access to admin tools
+  - curl -fsSL https://tailscale.com/install.sh | sh
+  - systemctl enable tailscaled
+  - systemctl start tailscaled
+  - echo "Docker and Tailscale installed successfully"
 
 
