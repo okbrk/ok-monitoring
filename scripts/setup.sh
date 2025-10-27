@@ -309,7 +309,7 @@ while [ $DOCKER_RETRY -lt $MAX_DOCKER_RETRIES ]; do
     DOCKER_RETRY=$((DOCKER_RETRY + 1))
     if [ $DOCKER_RETRY -lt $MAX_DOCKER_RETRIES ]; then
         warn "Docker pull failed, retrying in 10 seconds... (attempt $((DOCKER_RETRY + 1))/$MAX_DOCKER_RETRIES)"
-        sleep 10
+    sleep 10
     fi
 done
 

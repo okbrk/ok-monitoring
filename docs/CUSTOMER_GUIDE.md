@@ -1,45 +1,70 @@
-# Website Monitoring Integration Guide
+# Customer Integration Guide - Website Monitoring
 
-Welcome! This guide will help you integrate your website with our monitoring platform to track performance, errors, and user experience.
+Welcome! This guide will help you integrate your website with our monitoring platform.
 
 ## Your Credentials
 
-You should have received these from us:
+You should have received:
 
 - **Tenant ID**: `your-tenant-id`
 - **API Key**: `obs_xxxxxxxxxxxxx`
-- **Endpoints**:
-  - OTLP: `https://otlp.yourdomain.com`
-  - API: `https://api.yourdomain.com`
+- **Platform Domain**: `obs.okbrk.com`
 
-⚠️ **Keep your API key secure!** Never commit it to version control.
+⚠️ **Keep your API key secure!** Never commit it to version control or share publicly.
+
+## Quick Start
+
+### Test Your Connection
+
+```bash
+# Test if you can reach our platform
+curl https://api.obs.okbrk.com/health
+
+# Should return: OK
+```
+
+If you get a response, you're ready to integrate!
 
 ---
 
-## For Next.js / React Applications
+## Integration by Platform
 
-### Quick Start with Vercel OpenTelemetry
+Choose your platform and follow the guide:
 
-If you're using Vercel, this is the easiest integration:
+- [Next.js / React](#nextjs--react-applications)
+- [WordPress / WooCommerce](#wordpress--woocommerce)
+- [Shopify](#shopify-stores)
 
-#### 1. Install Dependencies
+---
+
+## Next.js / React Applications
+
+### Method 1: Vercel Deployment (Easiest)
+
+If you're deploying on Vercel:
+
+#### Step 1: Install Dependencies
 
 ```bash
 npm install @vercel/otel @opentelemetry/api
 ```
 
-#### 2. Create `instrumentation.ts` (or `.js`) in your project root
+#### Step 2: Create `instrumentation.ts` in Your Project Root
 
 ```typescript
-// instrumentation.ts
+// instrumentation.ts (or .js)
 export async function register() {
   if (process.env.NEXT_RUNTIME === 'nodejs') {
     await import('./instrumentation.node')
   }
+
+  if (process.env.NEXT_RUNTIME === 'edge') {
+    await import('./instrumentation.edge')
+  }
 }
 ```
 
-#### 3. Create `instrumentation.node.ts`
+#### Step 3: Create `instrumentation.node.ts`
 
 ```typescript
 // instrumentation.node.ts
@@ -48,26 +73,24 @@ import { registerOTel } from '@vercel/otel'
 export function register() {
   registerOTel({
     serviceName: 'your-app-name',
-    traceExporter: 'otlp',
   })
 }
 ```
 
-#### 4. Add Environment Variables
+#### Step 4: Add Environment Variables
 
-In your `.env.local` or Vercel environment variables:
+In Vercel dashboard or `.env.local`:
 
 ```bash
-# OpenTelemetry Configuration
-OTEL_EXPORTER_OTLP_ENDPOINT=https://otlp.yourdomain.com
+# Replace with YOUR credentials
+OTEL_EXPORTER_OTLP_ENDPOINT=https://otlp.obs.okbrk.com
 OTEL_EXPORTER_OTLP_HEADERS=X-Scope-OrgID=your-tenant-id,Authorization=Bearer obs_xxxxxxxxxxxxx
 
-# Service configuration
 OTEL_SERVICE_NAME=your-app-name
 OTEL_RESOURCE_ATTRIBUTES=deployment.environment=production
 ```
 
-#### 5. Enable Instrumentation in `next.config.js`
+#### Step 5: Enable in `next.config.js`
 
 ```javascript
 /** @type {import('next').NextConfig} */
@@ -80,441 +103,364 @@ const nextConfig = {
 module.exports = nextConfig
 ```
 
-That's it! Your Next.js app will now send traces automatically.
+#### Step 6: Track Web Vitals
 
-### Advanced: Manual Instrumentation with Tanstack Query
+Add to `app/layout.tsx` or `pages/_app.tsx`:
 
-For more control, especially with Tanstack Query (React Query):
+```typescript
+// app/layout.tsx (App Router)
+import { Suspense } from 'react'
+import { WebVitals } from '@/components/web-vitals'
 
-#### 1. Install Dependencies
+export default function RootLayout({ children }) {
+  return (
+    <html>
+      <body>
+        {children}
+        <Suspense>
+          <WebVitals />
+        </Suspense>
+      </body>
+    </html>
+  )
+}
+```
+
+Create `components/web-vitals.tsx`:
+
+```typescript
+// components/web-vitals.tsx
+'use client'
+
+import { useReportWebVitals } from 'next/web-vitals'
+
+export function WebVitals() {
+  useReportWebVitals((metric) => {
+    // Send to your monitoring platform
+    fetch('https://api.obs.okbrk.com/v1/metrics', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Scope-OrgID': process.env.NEXT_PUBLIC_TENANT_ID!,
+        'Authorization': `Bearer ${process.env.NEXT_PUBLIC_API_KEY!}`,
+      },
+      body: JSON.stringify({
+        name: `web_vital_${metric.name.toLowerCase()}`,
+        value: metric.value,
+        rating: metric.rating,
+        timestamp: Date.now(),
+      }),
+    })
+  })
+
+  return null
+}
+```
+
+**That's it!** Your Next.js app will now send traces and metrics automatically.
+
+---
+
+### Method 2: Custom Next.js Setup
+
+For more control or non-Vercel deployments:
+
+#### Step 1: Install OpenTelemetry
 
 ```bash
 npm install @opentelemetry/api \
-  @opentelemetry/sdk-trace-web \
-  @opentelemetry/instrumentation \
-  @opentelemetry/exporter-trace-otlp-http \
-  @opentelemetry/auto-instrumentations-web \
-  @opentelemetry/resources \
-  @opentelemetry/semantic-conventions
+  @opentelemetry/sdk-node \
+  @opentelemetry/auto-instrumentations-node \
+  @opentelemetry/exporter-trace-otlp-grpc
 ```
 
-#### 2. Create OpenTelemetry Provider
+#### Step 2: Create `instrumentation.node.ts`
 
 ```typescript
-// lib/telemetry.ts
-import { WebTracerProvider } from '@opentelemetry/sdk-trace-web'
-import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http'
-import { BatchSpanProcessor } from '@opentelemetry/sdk-trace-base'
-import { registerInstrumentations } from '@opentelemetry/instrumentation'
-import { getWebAutoInstrumentations } from '@opentelemetry/auto-instrumentations-web'
+// instrumentation.node.ts
+import { NodeSDK } from '@opentelemetry/sdk-node'
+import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-grpc'
 import { Resource } from '@opentelemetry/resources'
 import { SemanticResourceAttributes } from '@opentelemetry/semantic-conventions'
+import { getNodeAutoInstrumentations } from '@opentelemetry/auto-instrumentations-node'
 
-export function initTelemetry() {
-  const resource = new Resource({
+const sdk = new NodeSDK({
+  resource: new Resource({
     [SemanticResourceAttributes.SERVICE_NAME]: 'your-app-name',
     [SemanticResourceAttributes.SERVICE_VERSION]: '1.0.0',
-    'deployment.environment': process.env.NEXT_PUBLIC_ENV || 'production',
-  })
-
-  const provider = new WebTracerProvider({ resource })
-
-  const exporter = new OTLPTraceExporter({
-    url: 'https://api.yourdomain.com/v1/traces',
+    'deployment.environment': process.env.NODE_ENV || 'production',
+  }),
+  traceExporter: new OTLPTraceExporter({
+    url: 'https://otlp.obs.okbrk.com:443',
     headers: {
-      'X-Scope-OrgID': 'your-tenant-id',
-      'Authorization': 'Bearer obs_xxxxxxxxxxxxx',
+      'X-Scope-OrgID': process.env.TENANT_ID!,
+      'Authorization': `Bearer ${process.env.API_KEY!}`,
     },
-  })
-
-  provider.addSpanProcessor(new BatchSpanProcessor(exporter))
-  provider.register()
-
-  // Auto-instrument fetch, XMLHttpRequest, etc.
-  registerInstrumentations({
-    instrumentations: [
-      getWebAutoInstrumentations({
-        '@opentelemetry/instrumentation-fetch': {
-          propagateTraceHeaderCorsUrls: [/.*/],
-          clearTimingResources: true,
-        },
-      }),
-    ],
-  })
-}
-```
-
-#### 3. Initialize in `_app.tsx`
-
-```typescript
-// pages/_app.tsx
-import { useEffect } from 'react'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { initTelemetry } from '@/lib/telemetry'
-
-const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: {
-      // Add tracing to Tanstack Query
-      onError: (error) => {
-        // Errors are automatically traced
-        console.error('Query error:', error)
-      },
-    },
-  },
+  }),
+  instrumentations: [getNodeAutoInstrumentations()],
 })
 
-function MyApp({ Component, pageProps }) {
-  useEffect(() => {
-    initTelemetry()
-  }, [])
+sdk.start()
 
-  return (
-    <QueryClientProvider client={queryClient}>
-      <Component {...pageProps} />
-    </QueryClientProvider>
-  )
-}
-
-export default MyApp
-```
-
-#### 4. Track Custom Events in Your Components
-
-```typescript
-import { trace } from '@opentelemetry/api'
-
-function MyComponent() {
-  const tracer = trace.getTracer('app')
-
-  const handleCheckout = async () => {
-    const span = tracer.startSpan('checkout.process')
-
-    try {
-      span.setAttribute('cart.items', cartItems.length)
-      span.setAttribute('cart.total', total)
-
-      await processCheckout()
-
-      span.setStatus({ code: SpanStatusCode.OK })
-    } catch (error) {
-      span.setStatus({
-        code: SpanStatusCode.ERROR,
-        message: error.message
-      })
-      throw error
-    } finally {
-      span.end()
-    }
-  }
-
-  return <button onClick={handleCheckout}>Checkout</button>
+export function register() {
+  // SDK started above
 }
 ```
 
-### Frontend Error Tracking
+#### Step 3: Environment Variables
 
-Track client-side errors automatically:
-
-```typescript
-// lib/error-tracking.ts
-import { trace, SpanStatusCode } from '@opentelemetry/api'
-
-export function setupErrorTracking() {
-  const tracer = trace.getTracer('error-handler')
-
-  window.addEventListener('error', (event) => {
-    const span = tracer.startSpan('error.unhandled')
-    span.setAttribute('error.type', 'unhandled')
-    span.setAttribute('error.message', event.message)
-    span.setAttribute('error.filename', event.filename)
-    span.setAttribute('error.lineno', event.lineno)
-    span.setStatus({ code: SpanStatusCode.ERROR })
-    span.end()
-  })
-
-  window.addEventListener('unhandledrejection', (event) => {
-    const span = tracer.startSpan('error.unhandled_promise')
-    span.setAttribute('error.type', 'promise_rejection')
-    span.setAttribute('error.reason', String(event.reason))
-    span.setStatus({ code: SpanStatusCode.ERROR })
-    span.end()
-  })
-}
-
-// Call in _app.tsx
-setupErrorTracking()
-```
-
-### Web Vitals Monitoring
-
-Track Core Web Vitals automatically:
-
-```typescript
-// lib/web-vitals.ts
-import { trace } from '@opentelemetry/api'
-import { onCLS, onFID, onLCP, onFCP, onTTFB } from 'web-vitals'
-
-export function measureWebVitals() {
-  const tracer = trace.getTracer('web-vitals')
-
-  onCLS((metric) => {
-    const span = tracer.startSpan('web_vital.cls')
-    span.setAttribute('metric.value', metric.value)
-    span.setAttribute('metric.rating', metric.rating)
-    span.end()
-  })
-
-  onFID((metric) => {
-    const span = tracer.startSpan('web_vital.fid')
-    span.setAttribute('metric.value', metric.value)
-    span.setAttribute('metric.rating', metric.rating)
-    span.end()
-  })
-
-  onLCP((metric) => {
-    const span = tracer.startSpan('web_vital.lcp')
-    span.setAttribute('metric.value', metric.value)
-    span.setAttribute('metric.rating', metric.rating)
-    span.end()
-  })
-
-  onFCP((metric) => {
-    const span = tracer.startSpan('web_vital.fcp')
-    span.setAttribute('metric.value', metric.value)
-    span.end()
-  })
-
-  onTTFB((metric) => {
-    const span = tracer.startSpan('web_vital.ttfb')
-    span.setAttribute('metric.value', metric.value)
-    span.end()
-  })
-}
-
-// Call in _app.tsx
-measureWebVitals()
+```bash
+# .env.local
+TENANT_ID=your-tenant-id
+API_KEY=obs_xxxxxxxxxxxxx
 ```
 
 ---
 
-## For WordPress Sites
+## WordPress / WooCommerce
 
-### Option 1: Using a Plugin (Easiest)
+### Step 1: Install Required Plugin
 
-We recommend **OpenTelemetry for WordPress** plugin:
-
-#### 1. Install Plugin
+Use **WP Log Viewer** + **Custom logging**:
 
 ```bash
 # Via WP-CLI
-wp plugin install opentelemetry-for-wp --activate
-
-# Or download from GitHub
-# https://github.com/open-telemetry/opentelemetry-php-contrib
+wp plugin install wp-log-viewer --activate
 ```
 
-#### 2. Configure in `wp-config.php`
+### Step 2: Add Custom Logging Function
 
-Add these constants before `/* That's all, stop editing! */`:
-
-```php
-// OpenTelemetry Configuration
-define('OTEL_SERVICE_NAME', 'your-wordpress-site');
-define('OTEL_EXPORTER_OTLP_ENDPOINT', 'https://otlp.yourdomain.com');
-define('OTEL_EXPORTER_OTLP_HEADERS', 'X-Scope-OrgID=your-tenant-id,Authorization=Bearer obs_xxxxxxxxxxxxx');
-define('OTEL_PHP_AUTOLOAD_ENABLED', true);
-```
-
-### Option 2: Custom PHP Integration
-
-If you prefer manual integration or need more control:
-
-#### 1. Install Composer Dependencies
-
-```bash
-composer require \
-  open-telemetry/sdk \
-  open-telemetry/exporter-otlp \
-  open-telemetry/transport-grpc
-```
-
-#### 2. Create Telemetry Helper
+Add to your theme's `functions.php`:
 
 ```php
 <?php
-// wp-content/mu-plugins/telemetry.php
+// Send logs to monitoring platform
+function send_to_monitoring($level, $message, $context = []) {
+    $tenant_id = 'your-tenant-id';  // Replace with your tenant ID
+    $api_key = 'obs_xxxxxxxxxxxxx'; // Replace with your API key
 
-use OpenTelemetry\SDK\Trace\TracerProviderFactory;
-use OpenTelemetry\Contrib\Otlp\OtlpHttpTransportFactory;
-use OpenTelemetry\Contrib\Otlp\SpanExporter;
-use OpenTelemetry\SDK\Trace\SpanProcessor\SimpleSpanProcessor;
-use OpenTelemetry\SDK\Resource\ResourceInfo;
-use OpenTelemetry\SDK\Resource\ResourceInfoFactory;
-use OpenTelemetry\SemConv\ResourceAttributes;
+    $log_entry = [
+        'streams' => [[
+            'stream' => [
+                'job' => get_bloginfo('name'),
+                'service_name' => $tenant_id,
+                'level' => $level,
+                'host' => $_SERVER['HTTP_HOST']
+            ],
+            'values' => [[
+                (string)(time() * 1000000000), // Nanosecond timestamp
+                json_encode([
+                    'message' => $message,
+                    'context' => $context,
+                    'user_agent' => $_SERVER['HTTP_USER_AGENT'] ?? '',
+                    'ip' => $_SERVER['REMOTE_ADDR'] ?? '',
+                    'url' => $_SERVER['REQUEST_URI'] ?? ''
+                ])
+            ]]
+        ]]
+    ];
 
-function init_telemetry() {
-    $resource = ResourceInfoFactory::defaultResource()
-        ->merge(ResourceInfo::create([
-            ResourceAttributes::SERVICE_NAME => 'wordpress-site',
-            ResourceAttributes::SERVICE_VERSION => get_bloginfo('version'),
-            'deployment.environment' => WP_ENV ?? 'production',
-        ]));
-
-    $transport = (new OtlpHttpTransportFactory())->create(
-        'https://api.yourdomain.com/v1/traces',
-        'application/x-protobuf',
-        [
-            'X-Scope-OrgID' => 'your-tenant-id',
-            'Authorization' => 'Bearer obs_xxxxxxxxxxxxx',
-        ]
-    );
-
-    $exporter = new SpanExporter($transport);
-    $tracerProvider = (new TracerProviderFactory())->create(
-        new SimpleSpanProcessor($exporter),
-        $resource
-    );
-
-    return $tracerProvider->getTracer('wordpress');
+    wp_remote_post('https://api.obs.okbrk.com/loki/api/v1/push', [
+        'headers' => [
+            'Content-Type' => 'application/json',
+            'X-Scope-OrgID' => $tenant_id,
+            'Authorization' => 'Bearer ' . $api_key
+        ],
+        'body' => json_encode($log_entry),
+        'timeout' => 5,
+        'blocking' => false  // Don't slow down page load
+    ]);
 }
 
-// Initialize on WordPress init
-add_action('init', function() {
-    global $tracer;
-    $tracer = init_telemetry();
+// Track page views
+add_action('wp_head', function() {
+    send_to_monitoring('info', 'Page viewed', [
+        'page_title' => wp_title('', false),
+        'post_type' => get_post_type(),
+        'user_logged_in' => is_user_logged_in()
+    ]);
 });
 
-// Track page loads
-add_action('wp', function() {
-    global $tracer;
-    $span = $tracer->spanBuilder('page.load')
-        ->setAttribute('page.url', $_SERVER['REQUEST_URI'])
-        ->setAttribute('page.title', wp_title('', false))
-        ->startSpan();
-
-    register_shutdown_function(function() use ($span) {
-        $span->end();
-    });
+// Track errors
+add_action('wp_die_handler', function($message) {
+    send_to_monitoring('error', 'WordPress Error', [
+        'error' => $message
+    ]);
 });
-
-// Track WooCommerce checkout (if applicable)
-add_action('woocommerce_checkout_order_processed', function($order_id) {
-    global $tracer;
-    $order = wc_get_order($order_id);
-
-    $span = $tracer->spanBuilder('checkout.completed')
-        ->setAttribute('order.id', $order_id)
-        ->setAttribute('order.total', $order->get_total())
-        ->setAttribute('order.items', $order->get_item_count())
-        ->startSpan();
-    $span->end();
-});
+?>
 ```
 
-### WooCommerce Specific Tracking
+### Step 3: Track WooCommerce Events (if applicable)
 
 ```php
 <?php
+// Track product views
+add_action('woocommerce_after_single_product', function() {
+    global $product;
+    send_to_monitoring('info', 'Product viewed', [
+        'product_id' => $product->get_id(),
+        'product_name' => $product->get_name(),
+        'price' => $product->get_price()
+    ]);
+});
+
 // Track add to cart
 add_action('woocommerce_add_to_cart', function($cart_item_key, $product_id, $quantity) {
-    global $tracer;
     $product = wc_get_product($product_id);
-
-    $span = $tracer->spanBuilder('cart.add_item')
-        ->setAttribute('product.id', $product_id)
-        ->setAttribute('product.name', $product->get_name())
-        ->setAttribute('quantity', $quantity)
-        ->startSpan();
-    $span->end();
+    send_to_monitoring('info', 'Item added to cart', [
+        'product_id' => $product_id,
+        'product_name' => $product->get_name(),
+        'quantity' => $quantity,
+        'event' => 'cart_add_item'
+    ]);
 }, 10, 3);
 
-// Track form submissions (Contact Form 7)
-add_action('wpcf7_mail_sent', function($contact_form) {
-    global $tracer;
-    $span = $tracer->spanBuilder('form.submission')
-        ->setAttribute('form.id', $contact_form->id())
-        ->setAttribute('form.title', $contact_form->title())
-        ->startSpan();
-    $span->end();
+// Track checkout started
+add_action('woocommerce_checkout_process', function() {
+    send_to_monitoring('info', 'Checkout started', [
+        'cart_total' => WC()->cart->get_total(''),
+        'items_count' => WC()->cart->get_cart_contents_count(),
+        'event' => 'checkout_started'
+    ]);
 });
+
+// Track order completion
+add_action('woocommerce_thankyou', function($order_id) {
+    $order = wc_get_order($order_id);
+    send_to_monitoring('info', 'Order completed', [
+        'order_id' => $order_id,
+        'total' => $order->get_total(),
+        'items' => $order->get_item_count(),
+        'event' => 'checkout_completed'
+    ]);
+});
+?>
 ```
+
+### Step 4: Test Integration
+
+Visit any page on your WordPress site, then contact us to verify we're receiving your data.
 
 ---
 
-## For Shopify Sites
+## Shopify Stores
 
-Shopify requires a different approach since you can't install server-side code.
+Since Shopify doesn't allow server-side code, we'll track via frontend JavaScript.
 
-### Frontend Monitoring via Theme Customization
+### Step 1: Add Tracking Script to Theme
 
-#### 1. Add Tracking Script
-
-Go to **Online Store > Themes > Edit Code** and add to `theme.liquid` before `</head>`:
+1. Go to **Online Store** → **Themes** → **Edit Code**
+2. Open `theme.liquid`
+3. Add before `</head>`:
 
 ```html
-<!-- OpenTelemetry Tracking -->
-<script src="https://cdn.jsdelivr.net/npm/@opentelemetry/api@latest/build/esm/index.js" type="module"></script>
-<script type="module">
-  import { trace, context } from 'https://cdn.jsdelivr.net/npm/@opentelemetry/api@latest/build/esm/index.js'
-  import { WebTracerProvider } from 'https://cdn.jsdelivr.net/npm/@opentelemetry/sdk-trace-web@latest/build/esm/index.js'
-  import { OTLPTraceExporter } from 'https://cdn.jsdelivr.net/npm/@opentelemetry/exporter-trace-otlp-http@latest/build/esm/index.js'
-  import { BatchSpanProcessor } from 'https://cdn.jsdelivr.net/npm/@opentelemetry/sdk-trace-base@latest/build/esm/index.js'
+<!-- Monitoring Platform Integration -->
+<script>
+(function() {
+  const TENANT_ID = 'your-tenant-id';  // Replace with your tenant ID
+  const API_KEY = 'obs_xxxxxxxxxxxxx'; // Replace with your API key
+  const API_URL = 'https://api.obs.okbrk.com/loki/api/v1/push';
 
-  const provider = new WebTracerProvider()
-  const exporter = new OTLPTraceExporter({
-    url: 'https://api.yourdomain.com/v1/traces',
-    headers: {
-      'X-Scope-OrgID': 'your-tenant-id',
-      'Authorization': 'Bearer obs_xxxxxxxxxxxxx'
-    }
-  })
+  function sendLog(level, message, context) {
+    const logEntry = {
+      streams: [{
+        stream: {
+          job: '{{ shop.name }}',
+          service_name: TENANT_ID,
+          level: level,
+          host: window.location.hostname
+        },
+        values: [[
+          String(Date.now() * 1000000), // Nanosecond timestamp
+          JSON.stringify({
+            message: message,
+            context: context,
+            url: window.location.href,
+            userAgent: navigator.userAgent
+          })
+        ]]
+      }]
+    };
 
-  provider.addSpanProcessor(new BatchSpanProcessor(exporter))
-  provider.register()
-
-  const tracer = trace.getTracer('shopify-store')
+    navigator.sendBeacon(API_URL, new Blob([JSON.stringify(logEntry)], {
+      type: 'application/json',
+      headers: {
+        'X-Scope-OrgID': TENANT_ID,
+        'Authorization': 'Bearer ' + API_KEY
+      }
+    }));
+  }
 
   // Track page views
-  const pageSpan = tracer.startSpan('page.view')
-  pageSpan.setAttribute('page.url', window.location.href)
-  pageSpan.setAttribute('page.title', document.title)
-  {% if template %}
-  pageSpan.setAttribute('page.template', '{{ template }}')
-  {% endif %}
-  pageSpan.end()
+  sendLog('info', 'Page viewed', {
+    page_title: document.title,
+    page_type: '{{ request.page_type }}',
+    {% if template %}template: '{{ template }}'{% endif %}
+  });
 
-  // Track add to cart
-  document.addEventListener('submit', function(e) {
-    if (e.target.matches('form[action="/cart/add"]')) {
-      const span = tracer.startSpan('cart.add')
-      const formData = new FormData(e.target)
-      span.setAttribute('product.id', formData.get('id'))
-      span.setAttribute('quantity', formData.get('quantity') || 1)
-      span.end()
-    }
-  })
+  // Track errors
+  window.addEventListener('error', function(e) {
+    sendLog('error', 'JavaScript error', {
+      message: e.message,
+      filename: e.filename,
+      lineno: e.lineno
+    });
+  });
+})();
 </script>
 ```
 
-#### 2. Track Checkout Events
+### Step 2: Track Add to Cart
 
-In **Settings > Checkout > Order status page**, add this to "Additional scripts":
+Add to your cart form or product page:
 
 ```html
-<script type="module">
-  import { trace } from 'https://cdn.jsdelivr.net/npm/@opentelemetry/api@latest/build/esm/index.js'
+<script>
+document.addEventListener('submit', function(e) {
+  if (e.target.matches('form[action*="/cart/add"]')) {
+    const formData = new FormData(e.target);
+    sendLog('info', 'Item added to cart', {
+      product_id: formData.get('id'),
+      quantity: formData.get('quantity') || 1,
+      event: 'cart_add_item'
+    });
+  }
+});
+</script>
+```
 
-  const tracer = trace.getTracer('shopify-store')
+### Step 3: Track Checkout
 
-  {% if first_time_accessed %}
-  const span = tracer.startSpan('checkout.completed')
-  span.setAttribute('order.id', '{{ order.id }}')
-  span.setAttribute('order.total', {{ total_price }})
-  span.setAttribute('order.items', {{ line_items.size }})
-  span.setAttribute('customer.id', '{{ customer.id }}')
-  span.end()
-  {% endif %}
+In **Settings** → **Checkout** → **Order status page**, add:
+
+```html
+<script>
+{% if first_time_accessed %}
+(function() {
+  const logEntry = {
+    streams: [{
+      stream: {
+        job: '{{ shop.name }}',
+        service_name: 'your-tenant-id',
+        level: 'info'
+      },
+      values: [[
+        String(Date.now() * 1000000),
+        JSON.stringify({
+          message: 'Order completed',
+          order_id: '{{ order.id }}',
+          total: {{ total_price }},
+          items_count: {{ line_items.size }},
+          event: 'checkout_completed'
+        })
+      ]]
+    }]
+  };
+
+  navigator.sendBeacon('https://api.obs.okbrk.com/loki/api/v1/push',
+    new Blob([JSON.stringify(logEntry)], {type: 'application/json'}));
+})();
+{% endif %}
 </script>
 ```
 
@@ -522,97 +468,323 @@ In **Settings > Checkout > Order status page**, add this to "Additional scripts"
 
 ## Testing Your Integration
 
-### 1. Check if Data is Being Sent
+### Send a Test Event
+
+You can test your integration using `curl`:
 
 ```bash
-# Test the health endpoint
-curl https://api.yourdomain.com/health
+# Replace with YOUR credentials
+TENANT_ID="your-tenant-id"
+API_KEY="obs_xxxxxxxxxxxxx"
 
-# Should return: OK
+# Send test log
+curl -X POST https://api.obs.okbrk.com/loki/api/v1/push \
+  -H "Content-Type: application/json" \
+  -H "X-Scope-OrgID: $TENANT_ID" \
+  -H "Authorization: Bearer $API_KEY" \
+  -d '{
+    "streams": [{
+      "stream": {"job": "test", "service_name": "'$TENANT_ID'"},
+      "values": [["'$(date +%s)'000000000", "Test log from my application"]]
+    }]
+  }'
+
+# Should return: success (or empty response)
 ```
 
-### 2. Send a Test Trace
+### Verify Data is Received
 
-```javascript
-// In browser console or Node.js
-const testTrace = {
-  resourceSpans: [{
-    resource: {
-      attributes: [{
-        key: 'service.name',
-        value: { stringValue: 'test-service' }
-      }]
+Contact your platform administrator and ask them to verify your data is appearing in the system. They can see your logs in Grafana.
+
+---
+
+## Advanced: Custom Events Tracking
+
+### Track Custom Business Events
+
+For Next.js/React:
+
+```typescript
+// lib/track-event.ts
+export function trackEvent(eventName: string, properties: Record<string, any>) {
+  fetch('https://api.obs.okbrk.com/v1/logs', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Scope-OrgID': process.env.NEXT_PUBLIC_TENANT_ID!,
+      'Authorization': `Bearer ${process.env.NEXT_PUBLIC_API_KEY!}`,
     },
-    scopeSpans: [{
-      spans: [{
-        name: 'test-span',
-        startTimeUnixNano: Date.now() * 1000000,
-        endTimeUnixNano: (Date.now() + 100) * 1000000,
+    body: JSON.stringify({
+      resourceLogs: [{
+        resource: {
+          attributes: [{
+            key: 'service.name',
+            value: { stringValue: 'your-app-name' }
+          }]
+        },
+        scopeLogs: [{
+          logRecords: [{
+            timeUnixNano: String(Date.now() * 1000000),
+            severityText: 'INFO',
+            body: { stringValue: eventName },
+            attributes: Object.entries(properties).map(([key, value]) => ({
+              key,
+              value: { stringValue: String(value) }
+            }))
+          }]
+        }]
       }]
-    }]
-  }]
+    })
+  }).catch(console.error)  // Don't fail app if monitoring fails
 }
 
-fetch('https://api.yourdomain.com/v1/traces', {
-  method: 'POST',
-  headers: {
-    'Content-Type': 'application/json',
-    'X-Scope-OrgID': 'your-tenant-id',
-    'Authorization': 'Bearer obs_xxxxxxxxxxxxx'
-  },
-  body: JSON.stringify(testTrace)
+// Usage in your components
+import { trackEvent } from '@/lib/track-event'
+
+function CheckoutButton() {
+  const handleClick = () => {
+    trackEvent('checkout_started', {
+      cart_total: 99.99,
+      items_count: 3,
+      user_id: userId
+    })
+    // ... rest of checkout logic
+  }
+
+  return <button onClick={handleClick}>Checkout</button>
+}
+```
+
+### Track User Actions
+
+```typescript
+// Track button clicks
+trackEvent('button_clicked', {
+  button_name: 'signup',
+  page: window.location.pathname
+})
+
+// Track form submissions
+trackEvent('form_submitted', {
+  form_name: 'contact',
+  success: true
+})
+
+// Track feature usage
+trackEvent('feature_used', {
+  feature: 'dark_mode',
+  enabled: true
 })
 ```
 
-### 3. View Your Data
-
-Contact us to access your custom monitoring dashboard where you'll see:
-- Real-time performance metrics
-- Error rates and traces
-- User experience metrics (Web Vitals)
-- Custom events you're tracking
-
 ---
 
-## Common Issues
+## Troubleshooting
 
-### CORS Errors (Browser)
+### Data Not Appearing
 
-If you see CORS errors, ensure your requests include the proper headers. The API supports CORS for all origins.
+**Check 1: Verify Credentials**
 
-### No Data Appearing
+```bash
+# Test your endpoint
+curl -I https://api.obs.okbrk.com/health
 
-1. Check that your API key and tenant ID are correct
-2. Verify the endpoint URLs
-3. Check browser/server console for errors
-4. Ensure HTTPS is used (HTTP won't work)
+# Should return: HTTP/2 200
+```
 
-### High Data Volume
+**Check 2: Verify API Key Format**
 
-If you're sending too much data:
-- Implement sampling (e.g., only track 10% of requests)
-- Filter out health check endpoints
-- Reduce the number of custom attributes
+- Must include `Bearer` prefix in Authorization header
+- Example: `Authorization: Bearer obs_abc123...`
+- Tenant ID in `X-Scope-OrgID` header (no Bearer)
 
-```javascript
-// Example sampling
-if (Math.random() < 0.1) { // 10% sampling
-  // Only send trace 10% of the time
-  sendTrace()
+**Check 3: Check Console for Errors**
+
+In your browser console (F12), look for:
+- Network errors to `api.obs.okbrk.com`
+- CORS errors (shouldn't happen - we allow all origins)
+- 401/403 errors (wrong API key or tenant ID)
+
+**Check 4: Contact Support**
+
+If you've verified the above and still have issues, contact us with:
+- Your tenant ID
+- Screenshot of any errors
+- Sample of your integration code (hide API key)
+
+### Performance Impact
+
+Our monitoring is designed to have minimal impact:
+
+- **Async sending**: Doesn't block your app
+- **Batching**: Events batched before sending
+- **Sampling**: Can be configured for high-traffic apps
+- **Fallback**: If monitoring fails, your app continues normally
+
+### High-Traffic Applications
+
+For apps with >1000 requests/second, implement sampling:
+
+```typescript
+// Only send 10% of traces
+if (Math.random() < 0.1) {
+  // Send trace
 }
+```
+
+Or configure in environment:
+```bash
+OTEL_TRACES_SAMPLER=traceidratio
+OTEL_TRACES_SAMPLER_ARG=0.1  # Sample 10%
 ```
 
 ---
 
+## Security Best Practices
+
+### ✅ Do's
+
+- Store API keys in environment variables
+- Use `.env.local` for Next.js (gitignored by default)
+- Use WordPress options table or constants in `wp-config.php`
+- Rotate keys periodically (contact us for new keys)
+- Use HTTPS for all connections
+
+### ❌ Don'ts
+
+- Never commit API keys to Git
+- Don't expose API keys in client-side JavaScript (use server-side)
+- Don't share API keys between environments (dev/staging/prod)
+- Don't log sensitive user data (PII, passwords, tokens)
+
+### Recommended Setup
+
+```typescript
+// ✅ Good - Server-side only
+// app/api/track/route.ts
+export async function POST(request: Request) {
+  const body = await request.json()
+
+  await fetch('https://api.obs.okbrk.com/v1/logs', {
+    headers: {
+      'X-Scope-OrgID': process.env.TENANT_ID!, // Server-side env var
+      'Authorization': `Bearer ${process.env.API_KEY!}`, // Server-side env var
+    },
+    body: JSON.stringify(body)
+  })
+
+  return Response.json({ success: true })
+}
+
+// ❌ Bad - API key exposed in client
+const response = await fetch('https://api.obs.okbrk.com/v1/logs', {
+  headers: {
+    'Authorization': 'Bearer obs_abc123...' // NEVER hardcode in client code!
+  }
+})
+```
+
+---
+
+## Rate Limits & Quotas
+
+Your monitoring plan includes:
+
+| Resource | Limit | Notes |
+|----------|-------|-------|
+| **Log Ingestion** | 10 MB/s | Burst up to 20 MB/s |
+| **Metrics** | 1M active series | Per tenant |
+| **Traces** | 100K spans/trace | Per trace |
+| **Retention** | 30 days | Logs, metrics, traces |
+| **Query Rate** | Unlimited | Fair use expected |
+
+If you need higher limits, contact us.
+
+---
+
+## Next Steps
+
+1. **Integrate** using the guide above for your platform
+2. **Send test data** to verify connection
+3. **Contact us** to confirm data is being received
+4. **Monitor** your application's performance
+5. **Reach out** if you need help or have questions
+
 ## Support
 
-If you need help:
-- **Email**: support@yourdomain.com
-- **Response time**: Within 24 hours
+- **Email**: support@example.com
+- **Response Time**: Within 24 hours
+- **Status Page**: https://api.obs.okbrk.com/health
 
-## Security Notes
+---
 
-- **Never expose API keys** in client-side code (use environment variables)
-- **Use HTTPS** for all requests
-- **Rotate keys** if compromised (contact us)
-- **Monitor your usage** to detect anomalies
+## Example Applications
+
+### Complete Next.js Example
+
+```typescript
+// app/layout.tsx
+import { WebVitals } from './web-vitals'
+
+export default function RootLayout({ children }: { children: React.Node }) {
+  return (
+    <html>
+      <body>
+        {children}
+        <WebVitals />
+      </body>
+    </html>
+  )
+}
+
+// app/web-vitals.tsx
+'use client'
+import { useReportWebVitals } from 'next/web-vitals'
+
+export function WebVitals() {
+  useReportWebVitals((metric) => {
+    // Only track in production
+    if (process.env.NODE_ENV !== 'production') return
+
+    const body = {
+      streams: [{
+        stream: {
+          job: 'my-nextjs-app',
+          service_name: process.env.NEXT_PUBLIC_TENANT_ID,
+          metric_name: metric.name
+        },
+        values: [[
+          String(Date.now() * 1000000),
+          JSON.stringify({
+            name: metric.name,
+            value: metric.value,
+            rating: metric.rating,
+            id: metric.id
+          })
+        ]]
+      }]
+    }
+
+    fetch('https://api.obs.okbrk.com/loki/api/v1/push', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Scope-OrgID': process.env.NEXT_PUBLIC_TENANT_ID!,
+        'Authorization': `Bearer ${process.env.NEXT_PUBLIC_API_KEY!}`
+      },
+      body: JSON.stringify(body),
+      keepalive: true
+    }).catch(() => {}) // Fail silently
+  })
+
+  return null
+}
+```
+
+### Complete WordPress Example
+
+See the WordPress section above for the complete `functions.php` integration.
+
+---
+
+**Welcome aboard! Your monitoring is just a few lines of code away.** 🚀
