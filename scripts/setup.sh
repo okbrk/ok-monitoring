@@ -201,6 +201,15 @@ if [ $RETRY_COUNT -eq $MAX_RETRIES ]; then
     exit 1
 fi
 
+info "Verifying Docker networking is ready..."
+if ssh ok-obs "docker pull hello-world" &>/dev/null; then
+    info "Docker networking is ready!"
+    ssh ok-obs "docker rmi hello-world" &>/dev/null || true
+else
+    warn "Docker networking slow, waiting 30 more seconds..."
+    sleep 30
+fi
+
 info "Connecting server to Tailscale network..."
 ssh ok-obs "tailscale up --authkey=${TAILSCALE_AUTHKEY} --hostname=obs-server"
 
@@ -227,10 +236,10 @@ cd "$PROJECT_ROOT"
 
 # Create tarball of required files
 tar czf /tmp/obs-stack.tar.gz \
+    --exclude='*.bak' \
     docker-compose.yml \
     config/ \
-    scripts/tenant-management/ \
-    --exclude='*.bak'
+    scripts/tenant-management/
 
 # Copy and extract on server
 scp /tmp/obs-stack.tar.gz ok-obs:/opt/observability/
@@ -255,11 +264,33 @@ S3_TEMPO_ACCESS_KEY_ID=${S3_TEMPO_ACCESS_KEY_ID}
 S3_TEMPO_SECRET_ACCESS_KEY=${S3_TEMPO_SECRET_ACCESS_KEY}
 ENVFILE
 
-info "Starting Docker Compose stack..."
-ssh ok-obs "cd /opt/observability && docker compose up -d"
+info "Starting Docker Compose stack (pulling images may take 2-3 minutes)..."
+MAX_DOCKER_RETRIES=3
+DOCKER_RETRY=0
+
+while [ $DOCKER_RETRY -lt $MAX_DOCKER_RETRIES ]; do
+    if ssh ok-obs "cd /opt/observability && docker compose up -d" 2>&1 | tee /tmp/docker-compose-output.log; then
+        if ! grep -q "Error" /tmp/docker-compose-output.log; then
+            info "Docker Compose stack started successfully!"
+            break
+        fi
+    fi
+
+    DOCKER_RETRY=$((DOCKER_RETRY + 1))
+    if [ $DOCKER_RETRY -lt $MAX_DOCKER_RETRIES ]; then
+        warn "Docker pull failed, retrying in 10 seconds... (attempt $((DOCKER_RETRY + 1))/$MAX_DOCKER_RETRIES)"
+        sleep 10
+    fi
+done
+
+if [ $DOCKER_RETRY -eq $MAX_DOCKER_RETRIES ]; then
+    error "Failed to start Docker Compose stack after $MAX_DOCKER_RETRIES attempts"
+    error "Try manually: ssh ok-obs 'cd /opt/observability && docker compose up -d'"
+    exit 1
+fi
 
 info "Waiting for services to become healthy..."
-sleep 10
+sleep 15
 
 # Check service status
 ssh ok-obs "cd /opt/observability && docker compose ps"

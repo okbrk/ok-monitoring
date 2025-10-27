@@ -60,6 +60,13 @@ resource "hcloud_firewall" "observability" {
     destination_ips = ["0.0.0.0/0", "::/0"]
     description     = "All UDP outbound"
   }
+
+  rule {
+    direction       = "out"
+    protocol        = "icmp"
+    destination_ips = ["0.0.0.0/0", "::/0"]
+    description     = "All ICMP outbound"
+  }
 }
 
 
