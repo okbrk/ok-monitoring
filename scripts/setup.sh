@@ -53,6 +53,21 @@ for var in "${REQUIRED_VARS[@]}"; do
 done
 info "All required environment variables are set"
 
+# Verify SSH key exists in Hetzner
+info "Verifying SSH key exists in Hetzner..."
+if ! curl -s -H "Authorization: Bearer $HCLOUD_TOKEN" \
+    "https://api.hetzner.cloud/v1/ssh_keys" | \
+    grep -q "\"name\"[[:space:]]*:[[:space:]]*\"$SSH_KEY_NAME\""; then
+    error "SSH key '$SSH_KEY_NAME' not found in Hetzner Cloud"
+    error "Available keys:"
+    curl -s -H "Authorization: Bearer $HCLOUD_TOKEN" \
+        "https://api.hetzner.cloud/v1/ssh_keys" | \
+        grep -oE '"name"[[:space:]]*:[[:space:]]*"[^"]+"' | \
+        sed 's/"name"[[:space:]]*:[[:space:]]*"/  - /' | sed 's/"$//' || echo "  (none)"
+    exit 1
+fi
+info "SSH key '$SSH_KEY_NAME' found in Hetzner"
+
 # --- Phase 1: Provision Infrastructure ---
 step "Phase 1: Provisioning Infrastructure with Terraform"
 
@@ -84,22 +99,37 @@ info "Server provisioned: $SERVER_NAME @ $SERVER_IP"
 # --- Phase 2: Wait for Server and Setup Tailscale ---
 step "Phase 2: Waiting for Server to Initialize"
 
-info "Waiting for SSH to become available..."
+info "Waiting for SSH to become available (this may take 1-2 minutes)..."
 MAX_SSH_RETRIES=60
 SSH_RETRY_COUNT=0
 while [ $SSH_RETRY_COUNT -lt $MAX_SSH_RETRIES ]; do
-    if ssh -o ConnectTimeout=5 -o StrictHostKeyChecking=accept-new root@"$SERVER_IP" "echo 'SSH Ready'" &>/dev/null; then
-        info "SSH is available!"
+    # Use BatchMode to prevent password prompts and PreferredAuthentications to force key auth
+    if ssh -o ConnectTimeout=5 \
+           -o StrictHostKeyChecking=accept-new \
+           -o BatchMode=yes \
+           -o PreferredAuthentications=publickey \
+           root@"$SERVER_IP" "echo 'SSH Ready'" &>/dev/null; then
+        info "SSH is available and key authentication working!"
         break
     fi
     SSH_RETRY_COUNT=$((SSH_RETRY_COUNT + 1))
-    echo -n "."
+    if [ $((SSH_RETRY_COUNT % 6)) -eq 0 ]; then
+        echo -n " ${SSH_RETRY_COUNT}s"
+    else
+        echo -n "."
+    fi
     sleep 5
 done
 echo ""
 
 if [ $SSH_RETRY_COUNT -eq $MAX_SSH_RETRIES ]; then
     error "Timed out waiting for SSH to become available"
+    error "This usually means:"
+    error "  1. SSH key '$SSH_KEY_NAME' not properly configured in Hetzner"
+    error "  2. Cloud-init hasn't finished (wait 2-3 more minutes and retry)"
+    error "  3. Firewall blocking SSH from your IP"
+    error ""
+    error "Try manually: ssh root@$SERVER_IP"
     exit 1
 fi
 
@@ -110,12 +140,19 @@ info "Waiting for Docker and Tailscale to be installed (cloud-init may take 2-5 
 MAX_RETRIES=60
 RETRY_COUNT=0
 while [ $RETRY_COUNT -lt $MAX_RETRIES ]; do
-    if ssh -o ConnectTimeout=5 root@"$SERVER_IP" "command -v docker >/dev/null 2>&1 && command -v tailscale >/dev/null 2>&1" 2>/dev/null; then
+    if ssh -o ConnectTimeout=5 \
+           -o BatchMode=yes \
+           -o PreferredAuthentications=publickey \
+           root@"$SERVER_IP" "command -v docker >/dev/null 2>&1 && command -v tailscale >/dev/null 2>&1" 2>/dev/null; then
         info "Docker and Tailscale are ready!"
         break
     fi
     RETRY_COUNT=$((RETRY_COUNT + 1))
-    echo -n "."
+    if [ $((RETRY_COUNT % 6)) -eq 0 ]; then
+        echo -n " ${RETRY_COUNT}s"
+    else
+        echo -n "."
+    fi
     sleep 5
 done
 echo ""
