@@ -11,11 +11,14 @@ datasources:
     editable: true
     jsonData:
       maxLines: 1000
+      httpHeaderName1: 'X-Scope-OrgID'
       derivedFields:
         - datasourceUid: tempo
           matcherRegex: "trace_id=(\\w+)"
           name: TraceID
           url: "$${__value.raw}"
+    secureJsonData:
+      httpHeaderValue1: 'admin'
 
   # Mimir datasource for metrics
   - name: Mimir
@@ -27,9 +30,12 @@ datasources:
     editable: true
     jsonData:
       httpMethod: POST
+      httpHeaderName1: 'X-Scope-OrgID'
       exemplarTraceIdDestinations:
         - name: trace_id
           datasourceUid: tempo
+    secureJsonData:
+      httpHeaderValue1: 'admin'
 
   # Tempo datasource for traces
   - name: Tempo
@@ -42,6 +48,7 @@ datasources:
     uid: tempo
     jsonData:
       httpMethod: GET
+      httpHeaderName1: 'X-Scope-OrgID'
       tracesToLogsV2:
         datasourceUid: loki
         spanStartTimeShift: '-1h'
@@ -56,4 +63,6 @@ datasources:
         enabled: true
       lokiSearch:
         datasourceUid: loki
+    secureJsonData:
+      httpHeaderValue1: 'admin'
 
