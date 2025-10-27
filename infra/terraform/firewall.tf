@@ -44,13 +44,13 @@ resource "hcloud_firewall" "observability" {
     description = "ICMP ping"
   }
 
-  # Allow all outbound traffic
+  # Allow all outbound traffic (explicitly specified for Hetzner Cloud Firewall)
   rule {
     direction       = "out"
     protocol        = "tcp"
     port            = "any"
     destination_ips = ["0.0.0.0/0", "::/0"]
-    description     = "All TCP outbound"
+    description     = "All TCP outbound (HTTPS, SSH, etc)"
   }
 
   rule {
@@ -58,14 +58,14 @@ resource "hcloud_firewall" "observability" {
     protocol        = "udp"
     port            = "any"
     destination_ips = ["0.0.0.0/0", "::/0"]
-    description     = "All UDP outbound"
+    description     = "All UDP outbound (DNS, NTP, etc)"
   }
 
   rule {
     direction       = "out"
     protocol        = "icmp"
     destination_ips = ["0.0.0.0/0", "::/0"]
-    description     = "All ICMP outbound"
+    description     = "All ICMP outbound (ping)"
   }
 }
 

@@ -10,6 +10,18 @@ packages:
 ssh_authorized_keys:
   - ${ssh_pub_key}
 runcmd:
+  # Fix DNS resolution (configure systemd-resolved)
+  - |
+    cat > /etc/systemd/resolved.conf <<EOF
+    [Resolve]
+    DNS=8.8.8.8 1.1.1.1
+    FallbackDNS=8.8.4.4 1.0.0.1
+    Domains=~.
+    DNSSEC=no
+    DNSOverTLS=no
+    EOF
+  - systemctl restart systemd-resolved
+  - sleep 5
   # Install Docker
   - curl -fsSL https://get.docker.com -o /tmp/get-docker.sh
   - sh /tmp/get-docker.sh
@@ -19,7 +31,7 @@ runcmd:
   - mkdir -p /opt/observability-data
   - chown -R root:root /opt/observability-data
   - chmod 755 /opt/observability-data
-  # Set up Docker log rotation
+  # Set up Docker log rotation and DNS
   - |
     cat > /etc/docker/daemon.json <<EOF
     {
@@ -27,7 +39,8 @@ runcmd:
       "log-opts": {
         "max-size": "10m",
         "max-file": "3"
-      }
+      },
+      "dns": ["8.8.8.8", "1.1.1.1"]
     }
     EOF
   - systemctl restart docker

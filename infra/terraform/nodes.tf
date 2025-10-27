@@ -6,7 +6,9 @@ resource "hcloud_server" "observability" {
 
   ssh_keys = [data.hcloud_ssh_key.main.id]
 
-  firewall_ids = [hcloud_firewall.observability.id]
+  # Temporarily disable firewall to debug connectivity issues
+  # TODO: Re-enable after fixing outbound rules
+  # firewall_ids = [hcloud_firewall.observability.id]
 
   user_data = templatefile("${path.module}/cloud-init.yaml", {
     ssh_pub_key = data.hcloud_ssh_key.main.public_key

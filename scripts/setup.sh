@@ -201,13 +201,40 @@ if [ $RETRY_COUNT -eq $MAX_RETRIES ]; then
     exit 1
 fi
 
-info "Verifying Docker networking is ready..."
+info "Verifying server can reach the internet..."
+if ssh ok-obs "ping -c 2 -W 5 8.8.8.8" &>/dev/null; then
+    info "Server networking is ready!"
+else
+    warn "Server cannot reach internet. Diagnosing..."
+
+    # Debug networking
+    echo "=== Network Interfaces ==="
+    ssh ok-obs "ip addr show"
+    echo ""
+    echo "=== Routing Table ==="
+    ssh ok-obs "ip route show"
+    echo ""
+    echo "=== DNS Config ==="
+    ssh ok-obs "cat /etc/resolv.conf"
+    echo ""
+
+    error "Server has no internet connectivity. This is usually caused by:"
+    error "  1. Hetzner firewall blocking outbound traffic"
+    error "  2. Missing default gateway"
+    error "  3. Network not fully initialized"
+    error ""
+    error "Please check Hetzner Cloud Console firewall settings"
+    error "Or try manually: ssh ok-obs 'systemctl restart systemd-networkd && sleep 5'"
+    exit 1
+fi
+
+info "Testing Docker Hub connectivity..."
 if ssh ok-obs "docker pull hello-world" &>/dev/null; then
     info "Docker networking is ready!"
     ssh ok-obs "docker rmi hello-world" &>/dev/null || true
 else
-    warn "Docker networking slow, waiting 30 more seconds..."
-    sleep 30
+    warn "Docker Hub unreachable. Restarting Docker daemon..."
+    ssh ok-obs "systemctl restart docker && sleep 10"
 fi
 
 info "Connecting server to Tailscale network..."
