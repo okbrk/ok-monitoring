@@ -1,11 +1,10 @@
-version: "3.9"
-
 services:
   # Grafana - Admin-only access via Tailscale VPN
   grafana:
     image: grafana/grafana:11.0.0
     container_name: grafana
     restart: unless-stopped
+    user: "472" # Grafana user ID - fixes permission issues
     ports:
       - "3000:3000" # Exposed on host, but NOT via Caddy
     environment:

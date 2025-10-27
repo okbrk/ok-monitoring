@@ -31,7 +31,7 @@ blocks_storage:
     secret_access_key: ${S3_MIMIR_SECRET_ACCESS_KEY}
   tsdb:
     dir: /data/tsdb-cache
-    retention_period: 30d
+    retention_period: 720h
 
 # Compactor configuration
 compactor:
@@ -74,12 +74,11 @@ limits:
   max_global_series_per_metric: 100000
 
   # Query limits
-  max_query_lookback: 30d
-  max_query_length: 31d
-  max_partial_query_length: 30d
+  max_query_lookback: 720h
+  max_partial_query_length: 720h
 
   # Compaction and retention
-  compactor_blocks_retention_period: 30d
+  compactor_blocks_retention_period: 720h
 
 # Runtime configuration
 runtime_config:

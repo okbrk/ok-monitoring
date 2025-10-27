@@ -1,6 +1,5 @@
 # Multi-tenant Tempo configuration for distributed tracing
 multitenancy_enabled: true
-multitenancy_isdefault: false
 
 server:
   http_listen_port: 3200
@@ -63,11 +62,8 @@ compactor:
   compaction:
     block_retention: 720h  # 30 days
 
-# Overrides per tenant
+# Overrides configuration
 overrides:
-  defaults:
-    max_traces_per_user: 100000
-    max_bytes_per_trace: 5000000
-    ingestion_rate_limit_bytes: 15000000
-    ingestion_burst_size_bytes: 20000000
+  per_tenant_override_config: /etc/tempo/overrides.yaml
+  per_tenant_override_period: 10s
 

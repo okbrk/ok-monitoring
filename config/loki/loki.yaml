@@ -15,8 +15,6 @@ common:
       access_key_id: ${S3_LOKI_ACCESS_KEY_ID}
       secret_access_key: ${S3_LOKI_SECRET_ACCESS_KEY}
       s3forcepathstyle: true
-    filesystem:
-      directory: /loki/cache
   replication_factor: 1
   ring:
     kvstore:
