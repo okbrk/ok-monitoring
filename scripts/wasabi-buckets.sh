@@ -6,10 +6,18 @@ if [ -z "${WASABI_ENDPOINT:-}" ]; then
   exit 1
 fi
 
+if [ -z "${WASABI_REGION:-}" ]; then
+  echo "WASABI_REGION required" >&2
+  exit 1
+fi
+
 if [ -z "${DOMAIN:-}" ]; then
   echo "DOMAIN required for unique bucket naming" >&2
   exit 1
 fi
+
+# Override AWS CLI region to use Wasabi region
+export AWS_DEFAULT_REGION="${WASABI_REGION}"
 
 # Create unique bucket names using domain (replace dots with dashes)
 BUCKET_PREFIX=$(echo "${DOMAIN}" | tr '.' '-')
@@ -24,9 +32,9 @@ BUCKETS=(
 echo "Creating S3 buckets with prefix: ${BUCKET_PREFIX}"
 
 for b in "${BUCKETS[@]}"; do
-  if ! aws --endpoint-url "$WASABI_ENDPOINT" --region "$WASABI_REGION" s3api head-bucket --bucket "${b}" >/dev/null 2>&1; then
+  if ! aws --endpoint-url "$WASABI_ENDPOINT" s3api head-bucket --bucket "${b}" >/dev/null 2>&1; then
     echo "Bucket ${b} not found. Creating..."
-    aws --endpoint-url "$WASABI_ENDPOINT" --region "$WASABI_REGION" s3 mb "s3://${b}"
+    aws --endpoint-url "$WASABI_ENDPOINT" s3 mb "s3://${b}"
     echo "✓ Created bucket: ${b}"
   else
     echo "✓ Bucket ${b} already exists."
@@ -36,26 +44,65 @@ done
 # Apply lifecycle policies
 echo "Applying lifecycle policies..."
 
-cat > /tmp/lifecycle-logs.json <<EOF
-{"Rules":[{"ID":"expire-logs","Status":"Enabled","Expiration":{"Days":30}}]}
+cat > /tmp/lifecycle-logs.json <<'EOF'
+{
+  "Rules": [
+    {
+      "ID": "expire-logs",
+      "Status": "Enabled",
+      "Filter": {
+        "Prefix": ""
+      },
+      "Expiration": {
+        "Days": 30
+      }
+    }
+  ]
+}
 EOF
-aws --endpoint-url "$WASABI_ENDPOINT" --region "$WASABI_REGION" s3api put-bucket-lifecycle-configuration \
+aws --endpoint-url "$WASABI_ENDPOINT" s3api put-bucket-lifecycle-configuration \
   --bucket "${BUCKET_PREFIX}-loki-logs" \
   --lifecycle-configuration file:///tmp/lifecycle-logs.json
 echo "✓ Loki logs retention: 30 days"
 
-cat > /tmp/lifecycle-traces.json <<EOF
-{"Rules":[{"ID":"expire-traces","Status":"Enabled","Expiration":{"Days":14}}]}
+cat > /tmp/lifecycle-traces.json <<'EOF'
+{
+  "Rules": [
+    {
+      "ID": "expire-traces",
+      "Status": "Enabled",
+      "Filter": {
+        "Prefix": ""
+      },
+      "Expiration": {
+        "Days": 14
+      }
+    }
+  ]
+}
 EOF
-aws --endpoint-url "$WASABI_ENDPOINT" --region "$WASABI_REGION" s3api put-bucket-lifecycle-configuration \
+aws --endpoint-url "$WASABI_ENDPOINT" s3api put-bucket-lifecycle-configuration \
   --bucket "${BUCKET_PREFIX}-tempo-traces" \
   --lifecycle-configuration file:///tmp/lifecycle-traces.json
 echo "✓ Tempo traces retention: 14 days"
 
-cat > /tmp/lifecycle-metrics.json <<EOF
-{"Rules":[{"ID":"expire-metrics","Status":"Enabled","Expiration":{"Days":90}}]}
+cat > /tmp/lifecycle-metrics.json <<'EOF'
+{
+  "Rules": [
+    {
+      "ID": "expire-metrics",
+      "Status": "Enabled",
+      "Filter": {
+        "Prefix": ""
+      },
+      "Expiration": {
+        "Days": 90
+      }
+    }
+  ]
+}
 EOF
-aws --endpoint-url "$WASABI_ENDPOINT" --region "$WASABI_REGION" s3api put-bucket-lifecycle-configuration \
+aws --endpoint-url "$WASABI_ENDPOINT" s3api put-bucket-lifecycle-configuration \
   --bucket "${BUCKET_PREFIX}-mimir-metrics" \
   --lifecycle-configuration file:///tmp/lifecycle-metrics.json
 echo "✓ Mimir metrics retention: 90 days"
