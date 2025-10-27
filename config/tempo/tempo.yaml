@@ -38,7 +38,7 @@ storage:
   trace:
     backend: s3
     s3:
-      bucket: tempo-traces
+      bucket: ${S3_TEMPO_BUCKET}
       endpoint: ${S3_ENDPOINT}
       region: ${S3_REGION}
       access_key: ${S3_TEMPO_ACCESS_KEY_ID}

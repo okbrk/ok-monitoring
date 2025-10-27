@@ -25,7 +25,7 @@ blocks_storage:
   backend: s3
   s3:
     endpoint: ${S3_ENDPOINT}
-    bucket_name: mimir-metrics
+    bucket_name: ${S3_MIMIR_BUCKET}
     region: ${S3_REGION}
     access_key_id: ${S3_MIMIR_ACCESS_KEY_ID}
     secret_access_key: ${S3_MIMIR_SECRET_ACCESS_KEY}

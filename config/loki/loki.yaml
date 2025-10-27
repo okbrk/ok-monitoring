@@ -10,7 +10,7 @@ common:
   storage:
     s3:
       s3: ${S3_ENDPOINT}
-      bucketnames: loki-logs
+      bucketnames: ${S3_LOKI_BUCKET}
       region: ${S3_REGION}
       access_key_id: ${S3_LOKI_ACCESS_KEY_ID}
       secret_access_key: ${S3_LOKI_SECRET_ACCESS_KEY}
