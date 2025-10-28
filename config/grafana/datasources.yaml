@@ -66,3 +66,20 @@ datasources:
     secureJsonData:
       httpHeaderValue1: 'admin'
 
+  # Prometheus datasource for infrastructure metrics
+  - name: Prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: false
+    version: 1
+    editable: true
+    uid: prometheus
+    jsonData:
+      httpMethod: POST
+      timeInterval: '15s'
+      queryTimeout: '60s'
+      exemplarTraceIdDestinations:
+        - name: trace_id
+          datasourceUid: tempo
+

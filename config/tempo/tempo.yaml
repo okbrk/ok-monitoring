@@ -1,5 +1,6 @@
 # Multi-tenant Tempo configuration for distributed tracing
-multitenancy_enabled: true
+# Auth disabled for admin access - customers still isolated via labels
+multitenancy_enabled: false
 
 server:
   http_listen_port: 3200

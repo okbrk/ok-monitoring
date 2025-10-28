@@ -22,6 +22,8 @@ bash scripts/setup.sh
 
 - **Multi-Tenant**: Isolated data per customer with API key authentication
 - **Complete Observability**: Logs (Loki), Metrics (Mimir), Traces (Tempo)
+- **Self-Monitoring**: Built-in infrastructure monitoring with Prometheus, Alertmanager, and dashboards
+- **Automated Alerts**: Email and webhook notifications for critical issues
 - **Simple Deployment**: Docker Compose on Hetzner Cloud
 - **Automatic HTTPS**: Caddy with Let's Encrypt
 - **Remote Collection**: OTLP, Prometheus Remote Write, Loki API
@@ -31,6 +33,7 @@ bash scripts/setup.sh
 
 - **[Full Documentation](docs/README.md)** - Complete setup and operations guide
 - **[Customer Guide](docs/CUSTOMER_GUIDE.md)** - Integration guide for customers
+- **[Prometheus Integration](docs/PROMETHEUS_INTEGRATION.md)** - Configure Prometheus targets and remote_write
 
 ## Architecture
 

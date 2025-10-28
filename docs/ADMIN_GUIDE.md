@@ -251,63 +251,276 @@ DELETE FROM tenants WHERE tenant_id = 'acme';
 
 ## Monitoring the Platform
 
-### Platform Health Dashboard
+The platform includes comprehensive self-monitoring infrastructure to track service health, resource usage, and performance metrics.
 
-Create a dashboard in Grafana to monitor the platform itself:
+### Infrastructure Monitoring Dashboard
 
-1. **Go to Dashboards** → **New** → **New Dashboard**
-2. **Add panels for**:
-   - Docker container CPU/Memory usage
-   - Disk usage on `/opt/observability-data`
-   - Request rates to ingestion endpoints
-   - Error rates per tenant
-   - Data ingestion volume
+A pre-built **Infrastructure Monitoring** dashboard is available in Grafana at:
+```
+http://100.87.121.71:3000/d/infrastructure-monitoring/
+```
+
+The dashboard includes:
+
+**Service Health Overview:**
+- Real-time status of all 13+ services (UP/DOWN)
+- Active alerts by severity
+- Platform uptime percentage
+- Average response times
+
+**Host Resources:**
+- CPU usage (gauge and time series)
+- Memory usage (gauge and time series)
+- Disk usage for root and data directories
+- Network I/O rates
+
+**Container Resources:**
+- CPU usage per container
+- Memory usage per container
+- Container restart tracking
+
+**Ingestion Rates:**
+- Loki: logs per second
+- Mimir: metrics samples per second
+- Tempo: trace spans per second
+
+**Storage Growth:**
+- Data directory usage over time
+- Projected days until disk full
+- Storage growth trends
+
+### Monitoring Architecture
+
+The platform uses these additional services for self-monitoring:
+
+**Prometheus** (`prometheus:9090`):
+- Scrapes metrics from all platform services every 15s
+- Stores 7 days of metrics locally
+- Remote writes to Mimir for long-term storage
+- Evaluates alert rules
+
+**Alertmanager** (`alertmanager:9093`):
+- Receives alerts from Prometheus
+- Routes alerts via email and webhooks
+- Groups and deduplicates alerts
+- Manages alert lifecycle
+
+**Node Exporter** (`node-exporter:9100`):
+- Collects host-level metrics (CPU, memory, disk, network)
+- Provides system statistics
+
+**cAdvisor** (`cadvisor:8081`):
+- Monitors container resource usage
+- Tracks per-container CPU and memory
+
+**PostgreSQL Exporter** (`postgres-exporter:9187`):
+- Exposes PostgreSQL metrics
+- Tracks connections, queries, and performance
 
 ### Key Metrics to Monitor
 
-**Platform Resources:**
-```bash
-# Check disk usage
-ssh ok-obs "df -h /opt/observability-data"
-
-# Check Docker resource usage
-ssh ok-obs "docker stats --no-stream"
-
-# Check service health
-ssh ok-obs "cd /opt/observability && docker compose ps"
-```
-
-**Data Volume by Tenant:**
-
-In Grafana Explore (Mimir):
+**Service Health:**
 ```promql
-# Top tenants by request volume
-topk(10, sum by (X-Scope-OrgID) (rate(http_server_requests_total[1h])))
+# Check all services are up
+up
+
+# Services that are down
+up == 0
+
+# Service uptime percentage
+avg(up) * 100
 ```
 
-In Grafana Explore (Loki):
-```logql
-# Log volume by tenant
-sum by (X-Scope-OrgID) (rate({job=~".+"}[5m]))
+**Resource Usage:**
+```promql
+# CPU usage
+100 - (avg by(instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100)
+
+# Memory usage
+(1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100
+
+# Disk usage (root)
+(1 - (node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"})) * 100
+
+# Disk usage (data directory)
+(1 - (node_filesystem_avail_bytes{mountpoint="/opt/observability-data"} / node_filesystem_size_bytes{mountpoint="/opt/observability-data"})) * 100
 ```
 
-### Alerts to Configure
+**Container Resources:**
+```promql
+# CPU per container
+rate(container_cpu_usage_seconds_total{name!=""}[5m])
 
-Set up alerts in Grafana for:
+# Memory per container
+container_memory_usage_bytes{name!=""}
+```
 
-1. **Platform Health**:
-   - Any service down for > 5 minutes
-   - Disk usage > 80%
-   - Memory usage > 85%
+**Ingestion Rates:**
+```promql
+# Loki logs per second
+sum(rate(loki_distributor_lines_received_total[5m]))
 
-2. **Customer SLAs**:
-   - Error rate > 5% for any customer
-   - P95 latency > 1 second
-   - No data received from customer in 1 hour
+# Mimir metrics per second
+sum(rate(cortex_distributor_received_samples_total[5m]))
 
-3. **Security**:
-   - Failed authentication attempts > 100/hour
-   - Unusual data volume from a tenant
+# Tempo spans per second
+sum(rate(tempo_distributor_spans_received_total[5m]))
+```
+
+**Customer Data Volume:**
+```promql
+# Top customers by log volume (requires multi-tenancy enabled)
+topk(10, sum by (X-Scope-OrgID) (rate(loki_distributor_lines_received_total[1h])))
+
+# Top customers by metrics volume
+topk(10, sum by (X-Scope-OrgID) (rate(cortex_distributor_received_samples_total[1h])))
+```
+
+### Automated Alerts
+
+The platform automatically monitors for critical conditions and sends alerts via email/webhook:
+
+**Service Health Alerts:**
+- Service down for > 2 minutes (CRITICAL)
+- Service restarting frequently (WARNING)
+
+**Resource Alerts:**
+- CPU usage > 90% for 10 minutes (WARNING)
+- CPU usage > 95% for 5 minutes (CRITICAL)
+- Memory usage > 80% for 5 minutes (WARNING)
+- Memory usage > 90% for 2 minutes (CRITICAL)
+- Disk usage > 80% (WARNING)
+- Disk usage > 90% (CRITICAL)
+- Disk will fill in 24 hours (WARNING)
+
+**Performance Alerts:**
+- Container using > 80% CPU (WARNING)
+- Container using > 80% memory limit (WARNING)
+- Loki ingestion errors (WARNING)
+- Mimir discarding samples (WARNING)
+- Mimir compaction failures (WARNING)
+- OTEL Collector dropping data (WARNING)
+- PostgreSQL too many connections (WARNING)
+- PostgreSQL slow queries (WARNING)
+
+**Alerting Alerts:**
+- Alertmanager notification failures (WARNING)
+- Alertmanager config reload failed (CRITICAL)
+
+### Configuring Alerts
+
+**Email Alerts:**
+Add to your `.env` file:
+```bash
+# Required
+ALERT_EMAIL=admin@example.com
+
+# Optional SMTP configuration (defaults work for Gmail)
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_USERNAME=your_email@gmail.com
+SMTP_PASSWORD=your_app_password  # Use App Password for Gmail
+```
+
+**Webhook Alerts (Slack/Discord/PagerDuty):**
+```bash
+# Add to .env
+ALERT_WEBHOOK_URL=https://hooks.slack.com/services/YOUR/WEBHOOK/URL
+ALERT_WEBHOOK_TOKEN=optional_bearer_token
+```
+
+**Apply Changes:**
+```bash
+# Update .env locally, then copy to server
+scp .env ok-obs:/opt/observability/.env
+
+# Restart Alertmanager
+ssh ok-obs 'cd /opt/observability && docker compose restart alertmanager'
+```
+
+### Viewing Alerts
+
+**In Grafana:**
+1. Go to **Alerting** → **Alert rules**
+2. View all active alerts and their status
+
+**In Alertmanager UI:**
+```
+http://100.87.121.71:9093 (VPN-only)
+```
+
+**In Prometheus UI:**
+```
+http://100.87.121.71:9090 (VPN-only)
+```
+
+### Customizing Alert Rules
+
+Edit alert rules in `config/prometheus/alerts.yml`:
+
+```yaml
+- alert: CustomAlert
+  expr: your_metric > threshold
+  for: 5m
+  labels:
+    severity: warning
+    category: custom
+  annotations:
+    summary: "Brief description"
+    description: "Detailed description with {{ $value }}"
+```
+
+Apply changes:
+```bash
+# Copy to server
+scp config/prometheus/alerts.yml ok-obs:/opt/observability/config/prometheus/
+
+# Reload Prometheus config
+ssh ok-obs 'docker exec prometheus kill -HUP 1'
+```
+
+### Manual Health Checks
+
+**Quick Status Check:**
+```bash
+# All services status
+ssh ok-obs 'cd /opt/observability && docker compose ps'
+
+# Resource usage snapshot
+ssh ok-obs 'docker stats --no-stream'
+
+# Disk space
+ssh ok-obs 'df -h /opt/observability-data'
+```
+
+**Service-Specific Checks:**
+```bash
+# Check Loki health
+ssh ok-obs 'curl -s http://localhost:3100/ready'
+
+# Check Mimir health
+ssh ok-obs 'curl -s http://localhost:8080/ready'
+
+# Check Tempo health
+ssh ok-obs 'curl -s http://localhost:3200/ready'
+
+# Check Prometheus health
+ssh ok-obs 'curl -s http://localhost:9090/-/healthy'
+
+# Check Alertmanager health
+ssh ok-obs 'curl -s http://localhost:9093/-/healthy'
+```
+
+### Accessing Monitoring UIs
+
+All monitoring UIs are accessible only via Tailscale VPN:
+
+| Service | URL | Purpose |
+|---------|-----|---------|
+| Grafana | http://100.87.121.71:3000 | Main dashboards and visualization |
+| Prometheus | http://100.87.121.71:9090 | Metrics database and query UI |
+| Alertmanager | http://100.87.121.71:9093 | Alert management |
+| cAdvisor | http://100.87.121.71:8081 | Container metrics UI |
 
 ---
 

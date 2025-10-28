@@ -1,0 +1,187 @@
+# Alertmanager configuration for infrastructure alerts
+global:
+  resolve_timeout: 5m
+  # SMTP configuration (optional - configure via environment variables)
+  smtp_from: 'dev@${DOMAIN}'
+  smtp_smarthost: '${SMTP_HOST}:${SMTP_PORT}'
+  smtp_auth_username: '${SMTP_USERNAME}'
+  smtp_auth_password: '${SMTP_PASSWORD}'
+  smtp_require_tls: true
+
+# Templates for alert formatting
+# templates:
+#   - '/etc/alertmanager/templates/*.tmpl'
+
+# Route tree for alert routing
+route:
+  # Default receiver for all alerts
+  receiver: 'null'
+
+  # Group alerts by these labels
+  group_by: ['alertname', 'cluster', 'service']
+
+  # Wait time before sending first notification for a group
+  group_wait: 30s
+
+  # Wait time before sending notifications about new alerts in same group
+  group_interval: 5m
+
+  # Wait time before re-sending notifications for same alert
+  repeat_interval: 4h
+
+  # Child routes for specific alert types
+  # routes:
+  #   # Critical alerts - immediate notification
+  #   - match:
+  #       severity: critical
+  #     receiver: 'critical'
+  #     group_wait: 10s
+  #     repeat_interval: 1h
+  #     continue: true  # Also send to default receiver
+
+  #   # Capacity alerts - need attention but not immediate
+  #   - match:
+  #       category: capacity
+  #     receiver: 'capacity'
+  #     group_wait: 5m
+  #     repeat_interval: 12h
+
+  #   # Info alerts - low priority
+  #   - match:
+  #       severity: info
+  #     receiver: 'info'
+  #     group_wait: 10m
+  #     repeat_interval: 24h
+
+# Inhibition rules - suppress alerts based on other active alerts
+# inhibit_rules:
+#   # Inhibit warning if critical alert is firing for same service
+#   - source_match:
+#       severity: 'critical'
+#     target_match:
+#       severity: 'warning'
+#     equal: ['service', 'instance']
+
+#   # Inhibit all alerts if service is down
+#   - source_match:
+#       alertname: 'ServiceDown'
+#     target_match_re:
+#       alertname: '.*'
+#     equal: ['service']
+
+# Receivers - notification channels
+receivers:
+  - name: 'null'
+  # # Default receiver - sends to primary channel
+  # - name: 'default'
+  #   email_configs:
+  #     - to: '${ALERT_EMAIL}'
+  #       headers:
+  #         Subject: '[Monitoring] {{ .GroupLabels.alertname }}'
+  #       html: |
+  #         <!DOCTYPE html>
+  #         <html>
+  #         <head>
+  #           <style>
+  #             body { font-family: Arial, sans-serif; }
+  #             .alert { padding: 15px; margin: 10px 0; border-radius: 5px; }
+  #             .critical { background-color: #ffebee; border-left: 5px solid #f44336; }
+  #             .warning { background-color: #fff3e0; border-left: 5px solid #ff9800; }
+  #             .info { background-color: #e3f2fd; border-left: 5px solid #2196f3; }
+  #             .resolved { background-color: #e8f5e9; border-left: 5px solid #4caf50; }
+  #             h3 { margin: 0 0 10px 0; }
+  #             .details { font-size: 14px; color: #666; }
+  #           </style>
+  #         </head>
+  #         <body>
+  #           <h2>Observability Platform Alert</h2>
+  #           {{ range .Alerts }}
+  #           <div class="alert {{ .Labels.severity }}{{ if eq .Status "resolved" }} resolved{{ end }}">
+  #             <h3>{{ .Labels.alertname }}{{ if eq .Status "resolved" }} (Resolved){{ end }}</h3>
+  #             <p><strong>Severity:</strong> {{ .Labels.severity | toUpper }}</p>
+  #             <p><strong>Service:</strong> {{ .Labels.service }}</p>
+  #             <p><strong>Summary:</strong> {{ .Annotations.summary }}</p>
+  #             <p class="details">{{ .Annotations.description }}</p>
+  #             <p class="details"><strong>Started:</strong> {{ .StartsAt.Format "2006-01-02 15:04:05 MST" }}</p>
+  #             {{ if eq .Status "resolved" }}
+  #             <p class="details"><strong>Resolved:</strong> {{ .EndsAt.Format "2006-01-02 15:04:05 MST" }}</p>
+  #             {{ end }}
+  #           </div>
+  #           {{ end }}
+  #         </body>
+  #         </html>
+  #       send_resolved: true
+  #   webhook_configs:
+  #     - url: '${ALERT_WEBHOOK_URL}'
+  #       send_resolved: true
+  #       http_config:
+  #         bearer_token: '${ALERT_WEBHOOK_TOKEN}'
+
+  # # Critical alerts - more urgent notification
+  # - name: 'critical'
+  #   email_configs:
+  #     - to: '${ALERT_EMAIL}'
+  #       headers:
+  #         Subject: '[CRITICAL] {{ .GroupLabels.alertname }} - Immediate Action Required'
+  #         Priority: 'urgent'
+  #       html: |
+  #         <!DOCTYPE html>
+  #         <html>
+  #         <head>
+  #           <style>
+  #             body { font-family: Arial, sans-serif; background-color: #ffebee; }
+  #             .container { max-width: 600px; margin: 20px auto; padding: 20px; background: white; border-radius: 10px; }
+  #             .header { background-color: #f44336; color: white; padding: 20px; border-radius: 5px; margin-bottom: 20px; }
+  #             .alert-details { padding: 15px; background-color: #fff3e0; border-radius: 5px; margin: 10px 0; }
+  #             .footer { margin-top: 20px; padding-top: 20px; border-top: 1px solid #ddd; font-size: 12px; color: #666; }
+  #           </style>
+  #         </head>
+  #         <body>
+  #           <div class="container">
+  #             <div class="header">
+  #               <h1 style="margin: 0;">🚨 CRITICAL ALERT</h1>
+  #               <p style="margin: 5px 0 0 0;">Observability Platform - Immediate Action Required</p>
+  #             </div>
+  #             {{ range .Alerts }}
+  #             <div class="alert-details">
+  #               <h2>{{ .Labels.alertname }}</h2>
+  #               <p><strong>Service:</strong> {{ .Labels.service }}</p>
+  #               <p><strong>Category:</strong> {{ .Labels.category }}</p>
+  #               <p><strong>Summary:</strong> {{ .Annotations.summary }}</p>
+  #               <p><strong>Details:</strong> {{ .Annotations.description }}</p>
+  #               <p><strong>Started:</strong> {{ .StartsAt.Format "2006-01-02 15:04:05 MST" }}</p>
+  #               {{ if eq .Status "resolved" }}
+  #               <p style="color: #4caf50;"><strong>✓ Resolved:</strong> {{ .EndsAt.Format "2006-01-02 15:04:05 MST" }}</p>
+  #               {{ end }}
+  #             </div>
+  #             {{ end }}
+  #             <div class="footer">
+  #               <p>Access Grafana: http://{{ .ExternalURL }}/grafana/</p>
+  #               <p>This is an automated alert from your Observability Platform monitoring system.</p>
+  #             </div>
+  #           </div>
+  #         </body>
+  #         </html>
+  #       send_resolved: true
+  #   webhook_configs:
+  #     - url: '${ALERT_WEBHOOK_URL}'
+  #       send_resolved: true
+  #       http_config:
+  #         bearer_token: '${ALERT_WEBHOOK_TOKEN}'
+
+  # # Capacity planning alerts
+  # - name: 'capacity'
+  #   email_configs:
+  #     - to: '${ALERT_EMAIL}'
+  #       headers:
+  #         Subject: '[Capacity] {{ .GroupLabels.alertname }} - Planning Required'
+  #       send_resolved: true
+
+  # # Info alerts - low priority
+  # - name: 'info'
+  #   email_configs:
+  #     - to: '${ALERT_EMAIL}'
+  #       headers:
+  #         Subject: '[Info] {{ .GroupLabels.alertname }}'
+  #       send_resolved: true
+

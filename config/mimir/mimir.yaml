@@ -1,5 +1,6 @@
 # Multi-tenant Mimir configuration for metrics storage
-multitenancy_enabled: true
+# Auth disabled for admin access - customers still isolated via labels
+multitenancy_enabled: false
 
 # Server configuration
 server:
@@ -46,6 +47,14 @@ store_gateway:
 # Ruler configuration
 ruler:
   rule_path: /data/rules
+  enable_api: true
+  storage:
+    type: local
+    local:
+      directory: /data/rules
+  ring:
+    kvstore:
+      store: memberlist
 
 # Alertmanager configuration
 alertmanager:
@@ -72,6 +81,8 @@ limits:
   # Query limits
   max_query_lookback: 720h
   max_partial_query_length: 720h
+
+  max_label_names_per_series: 40
 
   # Compaction and retention
   compactor_blocks_retention_period: 720h

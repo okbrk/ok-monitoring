@@ -136,7 +136,35 @@ import { useReportWebVitals } from 'next/web-vitals'
 
 export function WebVitals() {
   useReportWebVitals((metric) => {
-    // Send to your monitoring platform
+    // Send to monitoring platform using OTLP format
+    const body = {
+      resourceMetrics: [{
+        resource: {
+          attributes: [
+            { key: 'service.name', value: { stringValue: 'your-app-name' } },
+            { key: 'deployment.environment', value: { stringValue: 'production' } }
+          ]
+        },
+        scopeMetrics: [{
+          metrics: [{
+            name: `web_vital_${metric.name.toLowerCase()}`,
+            unit: metric.name === 'CLS' ? '1' : 'ms',
+            gauge: {
+              dataPoints: [{
+                asDouble: metric.value,
+                timeUnixNano: String(Date.now() * 1000000),
+                attributes: [
+                  { key: 'rating', value: { stringValue: metric.rating } },
+                  { key: 'id', value: { stringValue: metric.id } },
+                  { key: 'page', value: { stringValue: window.location.pathname } }
+                ]
+              }]
+            }
+          }]
+        }]
+      }]
+    }
+
     fetch('https://api.obs.okbrk.com/v1/metrics', {
       method: 'POST',
       headers: {
@@ -144,13 +172,9 @@ export function WebVitals() {
         'X-Scope-OrgID': process.env.NEXT_PUBLIC_TENANT_ID!,
         'Authorization': `Bearer ${process.env.NEXT_PUBLIC_API_KEY!}`,
       },
-      body: JSON.stringify({
-        name: `web_vital_${metric.name.toLowerCase()}`,
-        value: metric.value,
-        rating: metric.rating,
-        timestamp: Date.now(),
-      }),
-    })
+      body: JSON.stringify(body),
+      keepalive: true
+    }).catch(() => {}) // Fail silently to not impact user experience
   })
 
   return null
@@ -171,49 +195,279 @@ For more control or non-Vercel deployments:
 npm install @opentelemetry/api \
   @opentelemetry/sdk-node \
   @opentelemetry/auto-instrumentations-node \
-  @opentelemetry/exporter-trace-otlp-grpc
+  @opentelemetry/exporter-trace-otlp-http \
+  @opentelemetry/exporter-metrics-otlp-http \
+  @opentelemetry/exporter-logs-otlp-http
 ```
 
-#### Step 2: Create `instrumentation.node.ts`
+#### Step 2: Create `instrumentation.ts` in Your Project Root
+
+```typescript
+// instrumentation.ts
+export async function register() {
+  if (process.env.NEXT_RUNTIME === 'nodejs') {
+    await import('./instrumentation.node')
+  }
+}
+```
+
+#### Step 3: Create `instrumentation.node.ts`
 
 ```typescript
 // instrumentation.node.ts
 import { NodeSDK } from '@opentelemetry/sdk-node'
-import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-grpc'
+import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http'
+import { OTLPMetricExporter } from '@opentelemetry/exporter-metrics-otlp-http'
+import { OTLPLogExporter } from '@opentelemetry/exporter-logs-otlp-http'
 import { Resource } from '@opentelemetry/resources'
-import { SemanticResourceAttributes } from '@opentelemetry/semantic-conventions'
+import { SEMRESATTRS_SERVICE_NAME, SEMRESATTRS_SERVICE_VERSION } from '@opentelemetry/semantic-conventions'
 import { getNodeAutoInstrumentations } from '@opentelemetry/auto-instrumentations-node'
+import { PeriodicExportingMetricReader } from '@opentelemetry/sdk-metrics'
+
+const headers = {
+  'X-Scope-OrgID': process.env.TENANT_ID!,
+  'Authorization': `Bearer ${process.env.API_KEY!}`,
+}
 
 const sdk = new NodeSDK({
   resource: new Resource({
-    [SemanticResourceAttributes.SERVICE_NAME]: 'your-app-name',
-    [SemanticResourceAttributes.SERVICE_VERSION]: '1.0.0',
+    [SEMRESATTRS_SERVICE_NAME]: 'your-app-name',
+    [SEMRESATTRS_SERVICE_VERSION]: '1.0.0',
     'deployment.environment': process.env.NODE_ENV || 'production',
   }),
   traceExporter: new OTLPTraceExporter({
-    url: 'https://otlp.obs.okbrk.com:443',
-    headers: {
-      'X-Scope-OrgID': process.env.TENANT_ID!,
-      'Authorization': `Bearer ${process.env.API_KEY!}`,
-    },
+    url: 'https://api.obs.okbrk.com/v1/traces',
+    headers,
   }),
+  metricReader: new PeriodicExportingMetricReader({
+    exporter: new OTLPMetricExporter({
+      url: 'https://api.obs.okbrk.com/v1/metrics',
+      headers,
+    }),
+  }),
+  logRecordProcessor: new (require('@opentelemetry/sdk-logs').BatchLogRecordProcessor)(
+    new OTLPLogExporter({
+      url: 'https://api.obs.okbrk.com/v1/logs',
+      headers,
+    })
+  ),
   instrumentations: [getNodeAutoInstrumentations()],
 })
 
 sdk.start()
 
 export function register() {
-  // SDK started above
+  console.log('OpenTelemetry SDK initialized')
 }
 ```
 
-#### Step 3: Environment Variables
+#### Step 4: Environment Variables
 
 ```bash
 # .env.local
 TENANT_ID=your-tenant-id
 API_KEY=obs_xxxxxxxxxxxxx
 ```
+
+#### Step 5: Enable in `next.config.js`
+
+```javascript
+/** @type {import('next').NextConfig} */
+const nextConfig = {
+  experimental: {
+    instrumentationHook: true,
+  },
+}
+
+module.exports = nextConfig
+```
+
+---
+
+### Method 3: Using Pino with Pino-Loki
+
+For applications using Pino logger, you can send logs directly to Loki.
+
+#### Step 1: Install Dependencies
+
+```bash
+npm install pino pino-loki
+```
+
+#### Step 2: Configure Pino Logger
+
+Create a logger configuration file:
+
+```typescript
+// lib/logger.ts (or logger.js)
+import pino from 'pino'
+
+const logger = pino({
+  level: process.env.LOG_LEVEL || 'info',
+  transport: {
+    targets: [
+      // Console output for development
+      {
+        target: 'pino-pretty',
+        level: 'info',
+        options: {
+          colorize: true,
+        },
+      },
+      // Loki transport for production
+      {
+        target: 'pino-loki',
+        level: 'info',
+        options: {
+          batching: true,
+          interval: 5, // Send logs every 5 seconds
+          host: 'https://api.obs.okbrk.com',
+          basicAuth: {
+            username: process.env.TENANT_ID!, // Your tenant ID
+            password: process.env.API_KEY!, // Your API key
+          },
+          labels: {
+            job: 'your-app-name',
+            environment: process.env.NODE_ENV || 'production',
+          },
+        },
+      },
+    ],
+  },
+})
+
+export default logger
+```
+
+#### Step 3: Alternative Configuration (Custom Headers)
+
+If you need more control over headers:
+
+```typescript
+// lib/logger.ts
+import pino from 'pino'
+
+const pinoLokiOptions = {
+  batching: true,
+  interval: 5,
+  host: 'https://api.obs.okbrk.com',
+  // Use custom headers instead of basicAuth
+  headers: {
+    'X-Scope-OrgID': process.env.TENANT_ID!,
+    'Authorization': `Bearer ${process.env.API_KEY!}`,
+  },
+  labels: {
+    job: 'your-app-name',
+    service_name: process.env.TENANT_ID!,
+    environment: process.env.NODE_ENV || 'production',
+  },
+  timeout: 10000, // 10 second timeout
+  silenceErrors: true, // Don't crash app if logging fails
+}
+
+const logger = pino({
+  level: process.env.LOG_LEVEL || 'info',
+  transport: {
+    target: 'pino-loki',
+    options: pinoLokiOptions,
+  },
+})
+
+export default logger
+```
+
+#### Step 4: Use the Logger
+
+```typescript
+// In your Next.js API routes or server components
+import logger from '@/lib/logger'
+
+// Log different levels
+logger.info('User logged in', { userId: 123, email: 'user@example.com' })
+logger.warn('Rate limit approaching', { remaining: 5 })
+logger.error('Payment failed', { orderId: 456, error: 'Card declined' })
+
+// Log with additional context
+logger.child({ requestId: 'abc123' }).info('Processing request')
+
+// Log errors with stack traces
+try {
+  // your code
+} catch (error) {
+  logger.error({ err: error }, 'Failed to process payment')
+}
+```
+
+#### Step 5: Production-Only Loki Transport
+
+To only send logs to Loki in production:
+
+```typescript
+// lib/logger.ts
+import pino from 'pino'
+
+const targets = [
+  // Always log to console in development
+  process.env.NODE_ENV !== 'production' && {
+    target: 'pino-pretty',
+    level: 'debug',
+    options: { colorize: true },
+  },
+  // Only send to Loki in production
+  process.env.NODE_ENV === 'production' && {
+    target: 'pino-loki',
+    level: 'info',
+    options: {
+      batching: true,
+      interval: 5,
+      host: 'https://api.obs.okbrk.com',
+      headers: {
+        'X-Scope-OrgID': process.env.TENANT_ID!,
+        'Authorization': `Bearer ${process.env.API_KEY!}`,
+      },
+      labels: {
+        job: 'your-app-name',
+        environment: 'production',
+      },
+      silenceErrors: true,
+    },
+  },
+].filter(Boolean)
+
+const logger = pino({
+  level: process.env.LOG_LEVEL || 'info',
+  transport: { targets },
+})
+
+export default logger
+```
+
+#### Step 6: Environment Variables
+
+```bash
+# .env.local
+TENANT_ID=your-tenant-id
+API_KEY=obs_xxxxxxxxxxxxx
+LOG_LEVEL=info
+```
+
+#### Configuration Options Reference
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `host` | string | - | Loki endpoint (use `https://api.obs.okbrk.com`) |
+| `batching` | boolean | `true` | Enable batching of logs |
+| `interval` | number | `5` | Seconds between batch sends |
+| `timeout` | number | `30000` | Request timeout in ms |
+| `silenceErrors` | boolean | `false` | Don't throw if Loki is unreachable |
+| `labels` | object | `{}` | Static labels for all logs |
+| `headers` | object | `{}` | Custom HTTP headers (use for auth) |
+
+**Important Notes:**
+- Use `headers` for authentication (required for multi-tenant setup)
+- Set `silenceErrors: true` to prevent app crashes if Loki is down
+- Use `batching: true` with `interval: 5-10` for better performance
+- The endpoint is `https://api.obs.okbrk.com` (without `/loki/api/v1/push` - pino-loki adds that)
 
 ---
 
@@ -747,25 +1001,34 @@ export function WebVitals() {
     if (process.env.NODE_ENV !== 'production') return
 
     const body = {
-      streams: [{
-        stream: {
-          job: 'my-nextjs-app',
-          service_name: process.env.NEXT_PUBLIC_TENANT_ID,
-          metric_name: metric.name
+      resourceMetrics: [{
+        resource: {
+          attributes: [
+            { key: 'service.name', value: { stringValue: 'my-nextjs-app' } },
+            { key: 'deployment.environment', value: { stringValue: 'production' } }
+          ]
         },
-        values: [[
-          String(Date.now() * 1000000),
-          JSON.stringify({
-            name: metric.name,
-            value: metric.value,
-            rating: metric.rating,
-            id: metric.id
-          })
-        ]]
+        scopeMetrics: [{
+          metrics: [{
+            name: `web_vital_${metric.name.toLowerCase()}`,
+            unit: metric.name === 'CLS' ? '1' : 'ms',
+            gauge: {
+              dataPoints: [{
+                asDouble: metric.value,
+                timeUnixNano: String(Date.now() * 1000000),
+                attributes: [
+                  { key: 'rating', value: { stringValue: metric.rating } },
+                  { key: 'id', value: { stringValue: metric.id } },
+                  { key: 'page', value: { stringValue: window.location.pathname } }
+                ]
+              }]
+            }
+          }]
+        }]
       }]
     }
 
-    fetch('https://api.obs.okbrk.com/loki/api/v1/push', {
+    fetch('https://api.obs.okbrk.com/v1/metrics', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -784,6 +1047,210 @@ export function WebVitals() {
 ### Complete WordPress Example
 
 See the WordPress section above for the complete `functions.php` integration.
+
+---
+
+## Prometheus Metrics Endpoint
+
+If you want to send custom metrics (request counts, latency, business metrics), expose a metrics endpoint that we'll scrape as a health check.
+
+### How It Works
+
+1. Your app exposes `/api/metrics` (or any path) with Prometheus-format metrics
+2. Endpoint requires your API key in `Authorization: Bearer` header
+3. We scrape it every 15-30 seconds
+4. Metrics appear in Grafana for querying and dashboards
+
+### Quick Setup
+
+**Node.js/Express:**
+
+```bash
+npm install prom-client
+```
+
+```javascript
+const express = require('express');
+const client = require('prom-client');
+
+const app = express();
+const register = new client.Registry();
+
+// Collect default metrics (CPU, memory, etc.)
+client.collectDefaultMetrics({ register });
+
+// Custom metrics
+const httpRequests = new client.Counter({
+  name: 'http_requests_total',
+  help: 'Total HTTP requests',
+  labelNames: ['method', 'path', 'status'],
+  registers: [register]
+});
+
+// Track requests
+app.use((req, res, next) => {
+  res.on('finish', () => {
+    httpRequests.labels(req.method, req.path, res.statusCode).inc();
+  });
+  next();
+});
+
+// Metrics endpoint with API key protection
+app.get('/api/metrics', (req, res) => {
+  const authHeader = req.headers.authorization;
+
+  // Replace with YOUR actual API key
+  if (authHeader !== 'Bearer obs_your_api_key_here') {
+    return res.status(401).send('Unauthorized');
+  }
+
+  res.set('Content-Type', register.contentType);
+  res.end(register.metrics());
+});
+
+app.listen(3000);
+```
+
+**Python/Flask:**
+
+```bash
+pip install prometheus-client flask
+```
+
+```python
+from flask import Flask, request, Response, abort
+from prometheus_client import Counter, generate_latest, REGISTRY
+
+app = Flask(__name__)
+
+# Custom metrics
+request_count = Counter(
+    'http_requests_total',
+    'Total HTTP requests',
+    ['method', 'endpoint', 'status']
+)
+
+@app.route('/api/metrics')
+def metrics():
+    # Validate API key
+    auth_header = request.headers.get('Authorization')
+    if auth_header != 'Bearer obs_your_api_key_here':
+        abort(401)
+
+    return Response(generate_latest(REGISTRY), mimetype='text/plain')
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=8080)
+```
+
+**Next.js API Route:**
+
+```bash
+npm install prom-client
+```
+
+```typescript
+// pages/api/metrics.ts
+import { NextApiRequest, NextApiResponse } from 'next';
+import client from 'prom-client';
+
+const register = new client.Registry();
+client.collectDefaultMetrics({ register });
+
+// Custom counter
+const pageViews = new client.Counter({
+  name: 'page_views_total',
+  help: 'Total page views',
+  labelNames: ['page'],
+  registers: [register]
+});
+
+export default async function handler(
+  req: NextApiRequest,
+  res: NextApiResponse
+) {
+  // Validate API key
+  const authHeader = req.headers.authorization;
+
+  if (authHeader !== `Bearer ${process.env.METRICS_API_KEY}`) {
+    return res.status(401).send('Unauthorized');
+  }
+
+  res.setHeader('Content-Type', register.contentType);
+  res.send(await register.metrics());
+}
+```
+
+### Test Locally
+
+```bash
+# Test your endpoint
+curl -H "Authorization: Bearer obs_your_api_key" http://localhost:3000/api/metrics
+
+# Should return Prometheus format:
+# HELP http_requests_total Total HTTP requests
+# TYPE http_requests_total counter
+# http_requests_total{method="GET",path="/",status="200"} 42
+```
+
+### Register Your Endpoint
+
+Contact your admin to register your endpoint URL. Provide:
+- Your tenant ID
+- Full HTTPS URL to your metrics endpoint (e.g., `https://your-app.com/api/metrics`)
+- Desired scrape interval (15-300 seconds, default: 30)
+
+After registration, metrics will appear in Grafana within 1-2 minutes.
+
+### Common Metrics to Track
+
+```javascript
+// Request counts
+const requests = new client.Counter({
+  name: 'http_requests_total',
+  help: 'Total HTTP requests',
+  labelNames: ['method', 'path', 'status']
+});
+
+// Request latency
+const duration = new client.Histogram({
+  name: 'http_request_duration_seconds',
+  help: 'HTTP request latency',
+  labelNames: ['method', 'path'],
+  buckets: [0.001, 0.01, 0.1, 0.5, 1, 5]
+});
+
+// Active users
+const activeUsers = new client.Gauge({
+  name: 'active_users',
+  help: 'Number of currently active users'
+});
+
+// Business metrics
+const orders = new client.Counter({
+  name: 'orders_total',
+  help: 'Total orders',
+  labelNames: ['status']
+});
+```
+
+### Query in Grafana
+
+```promql
+# Check scraping is working
+up{tenant_id="your-tenant-id"}
+
+# Request rate over 5 minutes
+rate(http_requests_total{tenant_id="your-tenant-id"}[5m])
+
+# 95th percentile latency
+histogram_quantile(0.95, rate(http_request_duration_seconds_bucket[5m]))
+
+# Current active users
+active_users{tenant_id="your-tenant-id"}
+```
+
+For detailed examples and best practices, see our [Prometheus Integration Guide](PROMETHEUS_INTEGRATION.md).
 
 ---
 

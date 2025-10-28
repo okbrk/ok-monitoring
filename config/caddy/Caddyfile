@@ -4,11 +4,33 @@
 {
   # Global options
   email admin@{$DOMAIN}
-  admin off
+
+  # Enable admin API for metrics on port 2019 (VPN-only)
+  admin :2019
+
+  # Enable Prometheus metrics
+  servers {
+    metrics
+  }
 }
 
 # API endpoints for customer data ingestion - PUBLIC
 https://api.{$DOMAIN} {
+  # CORS headers for browser-based integrations
+  @cors_preflight method OPTIONS
+  handle @cors_preflight {
+    header Access-Control-Allow-Origin "*"
+    header Access-Control-Allow-Methods "POST, GET, OPTIONS"
+    header Access-Control-Allow-Headers "Content-Type, X-Scope-OrgID, Authorization"
+    header Access-Control-Max-Age "3600"
+    respond 204
+  }
+
+  # Add CORS headers to all responses
+  header Access-Control-Allow-Origin "*"
+  header Access-Control-Allow-Methods "POST, GET, OPTIONS"
+  header Access-Control-Allow-Headers "Content-Type, X-Scope-OrgID, Authorization"
+
   # OTLP HTTP endpoints for traces, metrics, and logs
   handle /v1/traces {
     reverse_proxy otel-collector:4318
