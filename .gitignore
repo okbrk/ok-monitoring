@@ -66,4 +66,4 @@ docker-compose.override.yml
 test-output/
 /tmp/
 
-docs/chat-summary/
+docs/chat-summary/**/*
